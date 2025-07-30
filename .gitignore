@@ -19,4 +19,4 @@ docker-compose.override.yml
 
 # Datasets
 /data/*
-!data/train.csv     # <- keep this if you want to track it
+#!data/train.csv     # <- keep this if you want to track it
