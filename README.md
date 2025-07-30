@@ -44,13 +44,15 @@ FraudGuard/data/train.csv
 
 ### 2. 🐳 Build All Docker Services
 
-
+```bash
 docker-compose build
 This builds the simulation producer and ensures dependencies are installed.
+```
 
 ### 3. 🔄 Start the Stack (Kafka + Zookeeper + Producer)
-
+```bash
 docker-compose up -d
+```
 This runs:
 
 Apache Kafka
