@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.env
+
+# Jupyter
+.ipynb_checkpoints
+
+# Docker
+*.log
+*.pid
+docker-compose.override.yml
+
+# VS Code
+.vscode/
+
+# Datasets
+/data/*
+!data/train.csv     # <- keep this if you want to track it
