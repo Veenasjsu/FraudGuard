@@ -8,8 +8,7 @@ FraudGuard is an intelligent, streaming-based fraud detection system built using
 
 ## 🧱 Project Structure
 
-<pre> <code> FraudGuard/ ├── simulation/ # Kafka producer service │ ├── producer.py │ ├── Dockerfile │ └── requirements.txt ├── data/ # Local-only datasets (not tracked in Git) │ └── train.csv # Large CSV file used by the producer ├── docker-compose.yml # All services: kafka, zookeeper, producer ├── .gitignore └── README.md </code> </pre>
-
+<pre> <code> ``` FraudGuard/ ├── simulation/ # Kafka producer service │ ├── producer.py │ ├── Dockerfile │ └── requirements.txt ├── data/ # Local-only datasets (not tracked in Git) │ └── train.csv # Large CSV file used by the producer ├── docker-compose.yml # All services: kafka, zookeeper, producer ├── .gitignore └── README.md ``` </code> </pre>
 
 ---
 
