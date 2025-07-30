@@ -8,16 +8,7 @@ FraudGuard is an intelligent, streaming-based fraud detection system built using
 
 ## 🧱 Project Structure
 
-FraudGuard/
-├── simulation/ # Kafka producer service
-│ ├── producer.py
-│ ├── Dockerfile
-│ └── requirements.txt
-├── data/ # Local-only datasets (not tracked in Git)
-│ └── train.csv # Large CSV file used by the producer
-├── docker-compose.yml # All services: kafka, zookeeper, producer
-├── .gitignore
-└── README.md
+<pre> <code> FraudGuard/ ├── simulation/ # Kafka producer service │ ├── producer.py │ ├── Dockerfile │ └── requirements.txt ├── data/ # Local-only datasets (not tracked in Git) │ └── train.csv # Large CSV file used by the producer ├── docker-compose.yml # All services: kafka, zookeeper, producer ├── .gitignore └── README.md </code> </pre>
 
 
 ---
@@ -46,8 +37,9 @@ FraudGuard/data/train.csv
 
 ```bash
 docker-compose build
-This builds the simulation producer and ensures dependencies are installed.
 ```
+This builds the simulation producer and ensures dependencies are installed.
+
 
 ### 3. 🔄 Start the Stack (Kafka + Zookeeper + Producer)
 ```bash
@@ -62,8 +54,9 @@ Zookeeper
 Python-based Kafka producer (simulates transaction stream)
 
 ### 4. 🧪 View Producer Logs
-
+```bash
 docker-compose logs -f producer
+```
 You should see logs like:
 
 📤 Sent transaction 1: {...}
