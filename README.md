@@ -23,6 +23,8 @@ FraudGuard is an intelligent, streaming-based fraud detection system built using
 
 ### 1. 📁 Place Your Dataset
 
+Download dataset from - https://www.kaggle.com/datasets/kartik2112/fraud-detection
+
 Put your raw transaction file (`train.csv`) in the `data/` directory:
 
 FraudGuard/data/train.csv
