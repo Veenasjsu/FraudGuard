@@ -29,3 +29,14 @@ services:
       - ./data:/opt/data         
     entrypoint: >
       /bin/bash -c "python /opt/app/producer.py"
+
+  predictions:
+    build: ./Streaming
+    container_name: fraudguard-predictions
+    depends_on:
+      - kafka
+    volumes:
+      - ./Streaming:/opt/app
+      - ./fraud_model.pkl:/opt/app/fraud_model.pkl
+    entrypoint: >
+      /bin/bash -c "spark-submit /opt/app/stream_app.py"
