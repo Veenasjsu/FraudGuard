@@ -66,5 +66,5 @@ You should see logs like:
 
 ### 4. 🧪 View Prediction Logs
 ```bash
-docker-compose logs -f producer
+docker-compose logs -f predictions
 ```
