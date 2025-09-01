@@ -84,5 +84,6 @@ After installing dependencies, start the development server with:
 
 ```bash
 npm run dev
-Visit the URL printed in the terminal (typically http://localhost:5173).
+
 ```
+Visit the URL printed in the terminal (typically http://localhost:5173).
