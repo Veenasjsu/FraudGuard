@@ -64,7 +64,7 @@ You should see logs like:
 📤 Sent transaction 2: {...}
 ✅ Finished streaming.
 
-### 4. 🧪 View Prediction Logs
+### 5. 🧪 View Prediction Logs
 ```bash
 docker-compose logs -f predictions
 ```
