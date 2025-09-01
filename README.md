@@ -68,3 +68,21 @@ You should see logs like:
 ```bash
 docker-compose logs -f predictions
 ```
+# 🚀 FraudGuard Frontend:
+### 1. 📦 Install Dependencies
+
+To set up the frontend dependencies, navigate to the `frontend/` directory and run:
+
+```bash
+cd frontend
+npm install
+```
+
+### 2. ▶️ Start Development Server
+
+After installing dependencies, start the development server with:
+
+```bash
+npm run dev
+Visit the URL printed in the terminal (typically http://localhost:5173).
+```
