@@ -1,16 +1,24 @@
-import { Button } from "./components/ui/button";
+import React from "react";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import Shell from "./layouts/Shell";
+import Dashboard from "./pages/Dashboard";
+import Alerts from "./pages/Alerts";
+import Transactions from "./pages/Transactions";
+import Reports from "./pages/Reports";
+import Settings from "./pages/Settings";
 
 export default function App() {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-gray-900">
-      <h1 className="text-3xl font-bold mb-6">🚀 FraudGuard Dashboard Starter</h1>
-      <Button 
-      type="button"
-        className="px-6 py-3 text-base relative z-10"
-        onClick={() => alert("Button works! 🎉")}
-      >
-        Click Me
-      </Button>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route element={<Shell />}>
+          <Route index element={<Dashboard />} />
+          <Route path="alerts" element={<Alerts />} />
+          <Route path="transactions" element={<Transactions />} />
+          <Route path="reports" element={<Reports />} />
+          <Route path="settings" element={<Settings />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   );
 }
