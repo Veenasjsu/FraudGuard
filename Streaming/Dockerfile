@@ -11,7 +11,8 @@ RUN apt-get update && \
     wget -O /opt/spark/jars/kafka-clients-2.8.0.jar https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/2.8.0/kafka-clients-2.8.0.jar && \
     wget -O /opt/spark/jars/spark-token-provider-kafka-0-10_2.12-3.3.2.jar https://repo1.maven.org/maven2/org/apache/spark/spark-token-provider-kafka-0-10_2.12/3.3.2/spark-token-provider-kafka-0-10_2.12-3.3.2.jar && \
     wget -O /opt/spark/jars/commons-pool2-2.11.1.jar https://repo1.maven.org/maven2/org/apache/commons/commons-pool2/2.11.1/commons-pool2-2.11.1.jar && \
-    apt-get clean && \
+    apt-get clean && \    
+    COPY log4j.properties /opt/spark/conf/log4j.properties && \
     rm -rf /var/lib/apt/lists/*
      
 ENV SPARK_HOME=/opt/spark
