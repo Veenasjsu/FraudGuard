@@ -38,5 +38,8 @@ services:
     volumes:
       - ./Streaming:/opt/app
       - ./fraud_model.pkl:/opt/app/fraud_model.pkl
+      - ./Streaming/log4j2.properties:/opt/spark/conf/log4j2.properties
+    environment:
+      - SPARK_SUBMIT_OPTS=-Dlog4j.configurationFile=file:/opt/spark/conf/log4j2.properties
     entrypoint: >
       /bin/bash -c "spark-submit /opt/app/stream_app.py"
