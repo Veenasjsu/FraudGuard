@@ -43,3 +43,34 @@ services:
       - SPARK_SUBMIT_OPTS=-Dlog4j.configurationFile=file:/opt/spark/conf/log4j2.properties
     entrypoint: >
       /bin/bash -c "spark-submit /opt/app/stream_app.py"
+
+  ws:
+    image: python:3.11-slim
+    container_name: fraudguard-ws
+    working_dir: /opt/app/Backend
+    volumes:
+      - ${PWD}:/opt/app                      # <-- mounts your whole repo
+      - ${PWD}/fraud_model.pkl:/opt/app/Backend/fraud_model.pkl  # model visible here
+    command: >
+      sh -c "pip install --no-cache-dir fastapi 'uvicorn[standard]' &&
+         uvicorn fraud_ws_server:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - kafka
+
+  consumer:
+    image: python:3.11-slim
+    container_name: fraudguard-consumer
+    working_dir: /opt/app/Backend
+    volumes:
+      - ${PWD}:/opt/app
+      - ${PWD}/fraud_model.pkl:/opt/app/Backend/fraud_model.pkl
+    environment:
+      - KAFKA_BOOTSTRAP=fraudguard-kafka:9092
+    command: >
+      sh -c "pip install --no-cache-dir fastapi kafka-python joblib pandas scikit-learn==1.7.1 &&
+            python kafka_fraud_consumer.py"
+    depends_on:
+      - kafka
+      - ws
