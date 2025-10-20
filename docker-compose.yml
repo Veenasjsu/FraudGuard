@@ -43,3 +43,23 @@ services:
       - SPARK_SUBMIT_OPTS=-Dlog4j.configurationFile=file:/opt/spark/conf/log4j2.properties
     entrypoint: >
       /bin/bash -c "spark-submit /opt/app/stream_app.py"
+
+  websocket_server:
+    build: ./websocket # Directory for your server code
+    container_name: fraudguard-websocket
+    depends_on:
+      - kafka
+      - predictions # Depends on Spark starting to produce metrics
+    ports:
+      - "5000:5000" # Port for the WebSocket server
+    environment:
+      KAFKA_BROKER: kafka:9092
+      KAFKA_TOPIC: realtime_fraud_metrics
+  
+  frontend:
+    build: ./frontend
+    container_name: fraudguard-frontend
+    ports:
+      - "8080:80" # Map host port 8080 to container port 80
+    depends_on:
+      - websocket_server # Ensure WebSocket server is running first

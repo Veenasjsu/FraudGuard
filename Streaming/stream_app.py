@@ -3,6 +3,7 @@ from pyspark.sql.functions import from_json, col, hour, dayofweek
 from pyspark.sql.types import StructType, StringType, FloatType, TimestampType
 from pyspark.sql.functions import pandas_udf
 import joblib
+from pyspark.sql.functions import window, count, sum, avg, expr, to_json, struct
 
 # 1. Define schema
 schema = StructType() \
@@ -74,4 +75,51 @@ query = df_pred.writeStream \
     .option("truncate", False) \
     .start()
 
-query.awaitTermination()
+#query.awaitTermination()
+
+
+# 8. Watermark: Allow late data up to 5 minutes
+df_watermarked = df_pred.withWatermark("timestamp", "5 minutes")
+
+# 9. Group and Aggregate over a 5-minute tumbling window
+window_duration = "5 minutes"
+
+df_eda_metrics = df_watermarked.groupBy(
+    window(col("timestamp"), window_duration)
+).agg(
+    count(col("transaction_id")).alias("total_transactions"),
+    # Sum of fraud_prediction (where 1=fraud, 0=not fraud) gives the fraud count
+    sum(expr("CAST(fraud_prediction AS LONG)")).alias("fraud_count"),
+    avg(col("amt")).alias("avg_amt_window")
+).withColumn(
+    "fraud_rate_pct",
+    (col("fraud_count") / col("total_transactions")) * 100
+).filter(col("total_transactions") > 0) # Only process non-empty windows
+
+# 10. Prepare for Kafka Output (Convert struct to JSON string)
+df_eda_json = df_eda_metrics.select(
+    to_json(
+        # Select all columns and wrap them in a struct for JSON serialization
+        struct(col("window.*"), "total_transactions", "fraud_count", "fraud_rate_pct", "avg_amt_window")
+    ).alias("value")
+)
+
+# 3b. Output 2: Real-Time EDA Metrics (To Kafka for Dashboard)
+eda_query = df_eda_json.writeStream \
+    .outputMode("append") \
+    .format("kafka") \
+    .option("kafka.bootstrap.servers", "kafka:9092") \
+    .option("topic", "realtime_fraud_metrics") \
+    .option("checkpointLocation", "/opt/app/checkpoints/eda_metrics") \
+    .start()
+
+# 3c. Output 3: Fraud Alerts (Filter and Send to a separate topic/console)
+df_alerts = df_pred.filter(col("fraud_prediction") == 1)
+alert_query = df_alerts.writeStream \
+    .outputMode("append") \
+    .format("console") \
+    .option("truncate", False) \
+    .start()
+
+# Wait for all streaming queries to terminate
+spark.streams.awaitAnyTermination()
