@@ -18,15 +18,20 @@ app.add_middleware(
 def root():
     return {"message": "WebSocket running at /ws/alerts"}
 
-@app.websocket("/ws/alerts")
+@app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    while True:
-        # Simulate a fake alert
-        alert = {
-            "user": random.choice(["Alice", "Bob", "Charlie"]),
-            "amount": round(random.uniform(100, 1000), 2),
-            "fraud": random.choice([0, 1])
-        }
-        await websocket.send_json(alert)
-        await asyncio.sleep(3)  # simulate stream
+    try:
+        while True:
+            alert = {"message": "something"}  # Example message
+            await websocket.send_json(alert)
+            await asyncio.sleep(1)
+    except WebSocketDisconnect:
+        print("Client disconnected cleanly.")
+    except asyncio.CancelledError:
+        print("Task cancelled, likely due to server reload.")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+    finally:
+        await websocket.close()
+        
