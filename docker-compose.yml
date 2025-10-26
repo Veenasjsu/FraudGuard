@@ -43,3 +43,10 @@ services:
       - SPARK_SUBMIT_OPTS=-Dlog4j.configurationFile=file:/opt/spark/conf/log4j2.properties
     entrypoint: >
       /bin/bash -c "spark-submit /opt/app/stream_app.py"
+
+  backend:
+    build: ./Backend
+    container_name: fraudguard_backend
+    ports:
+      - "8000:8000"
+    command: uvicorn fraud_ws_server:app --host 0.0.0.0 --port 8000
