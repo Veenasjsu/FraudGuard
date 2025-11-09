@@ -68,6 +68,12 @@ You should see logs like:
 ```bash
 docker-compose logs -f predictions | Select-String -NotMatch "WARN KafkaDataConsumer"
 ```
+
+### 6. 🧪 View Metrics Logs
+```bash
+docker-compose logs -f metrics
+```
+
 # 🚀 FraudGuard Frontend:
 ### 1. 📦 Install Dependencies
 

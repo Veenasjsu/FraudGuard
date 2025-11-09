@@ -108,3 +108,22 @@ services:
         condition: service_healthy
       ws:
         condition: service_healthy
+
+  metrics:
+    image: python:3.11-slim
+    container_name: fraudguard-metrics
+    restart: unless-stopped
+    working_dir: /opt/app
+    volumes:
+      - ./Streaming:/opt/app
+      - ./fraud_model.pkl:/opt/app/fraud_model.pkl
+      - ./fraud_model_xgb.pkl:/opt/app/fraud_model_xgb.pkl
+      - ./fraud_unsupervised.pkl:/opt/app/fraud_unsupervised.pkl
+    environment:
+      KAFKA_BOOTSTRAP: fraudguard-kafka:9092
+    command: >
+      sh -c "pip install --no-cache-dir kafka-python joblib pandas scikit-learn==1.7.2 xgboost &&
+             python metrics_tracker.py"
+    depends_on:
+      kafka:
+        condition: service_healthy
