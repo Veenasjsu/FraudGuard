@@ -43,6 +43,7 @@ df_feats = df \
 # Models are cached per worker process to avoid reloading on every batch
 _xgb_model_cache = None
 _rf_model_cache = None
+_if_model_cache = None
 
 @pandas_udf("integer")
 def predict_xgb_fraud_udf(amt, city_pop, lat, long, merch_lat, merch_long):
@@ -88,7 +89,35 @@ def predict_rf_fraud_udf(amt, city_pop, lat, long, merch_lat, merch_long):
     })
     return pd.Series(_rf_model_cache.predict(X))
 
-# 6. Add prediction columns for both models
+@pandas_udf("integer")
+def predict_if_fraud_udf(amt, city_pop, lat, long, merch_lat, merch_long):
+    import pandas as pd
+    import joblib
+    import numpy as np
+    global _if_model_cache
+    
+    # Load Isolation Forest model once per worker process (cached)
+    if _if_model_cache is None:
+        _if_model_cache = joblib.load('/opt/app/fraud_unsupervised.pkl')
+        # Get the IsolationForest from the pipeline
+        if_estimator = _if_model_cache.named_steps.get('iforest', None)
+        model_class = type(if_estimator).__name__ if if_estimator else 'Pipeline'
+        print(f"[Isolation Forest Model Loaded] Model Type: Pipeline, Contains: {model_class}")
+    
+    X = pd.DataFrame({
+        'amt': amt,
+        'city_pop': city_pop,
+        'lat': lat,
+        'long': long,
+        'merch_lat': merch_lat,
+        'merch_long': merch_long
+    })
+    # Isolation Forest returns -1 for anomalies (fraud) and 1 for normal
+    # Convert to 0/1 format: -1 -> 1 (fraud), 1 -> 0 (no fraud)
+    predictions = _if_model_cache.predict(X)
+    return pd.Series((predictions == -1).astype(int))
+
+# 6. Add prediction columns for all three models
 df_pred = df_feats \
     .withColumn(
         "xgb_fraud_prediction",
@@ -111,6 +140,17 @@ df_pred = df_feats \
             col("merch_lat"),
             col("merch_long")
         )
+    ) \
+    .withColumn(
+        "if_fraud_prediction",
+        predict_if_fraud_udf(
+            col("amt"),
+            col("city_pop"),
+            col("lat"),
+            col("long"),
+            col("merch_lat"),
+            col("merch_long")
+        )
     )
 
 # 8. Output to console (logs) with trigger for real-time predictions
@@ -122,8 +162,9 @@ query = df_pred.writeStream \
     .start()
 
 print("=" * 80)
-print("Dual Model Fraud Detection - Streaming Predictions Started")
+print("Multi Model Fraud Detection - Streaming Predictions Started")
 print("XGBoost Model: /opt/app/fraud_model_xgb.pkl")
 print("RandomForest Model: /opt/app/fraud_model.pkl")
+print("Isolation Forest Model: /opt/app/fraud_unsupervised.pkl")
 print("=" * 80)
 query.awaitTermination()
