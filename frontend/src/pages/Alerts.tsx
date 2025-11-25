@@ -1,16 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ChevronLeft, ChevronRight, Dot, ListFilter } from "lucide-react";
-
-// ————— Types —————
-export type Alert = {
-  id: string;         // stable id (trans_num or composed)
-  user: string;
-  amount: number;
-  fraud: number;      // 0 or 1
-  score?: number;
-  ts?: number;
-  raw?: any;
-};
+import { useFraudAlerts } from "../contexts/FraudAlertsContext";
+import type { Alert } from "../contexts/FraudAlertsContext";
 
 // ————— Utils —————
 const formatINR = (n: number) =>
@@ -18,98 +9,15 @@ const formatINR = (n: number) =>
 
 // Tunables
 const ITEMS_PER_PAGE = 10;   // page size
-const MAX_STORED = 1000;     // memory cap
 
 // ————— Component —————
 export default function Alerts() {
-  const [allAlerts, setAllAlerts] = useState<Alert[]>([]);
+  const { alerts: allAlerts, connected: isConnected } = useFraudAlerts();
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState<"ts" | "amount" | "score">("ts");
   const [descending, setDescending] = useState(true);
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const keepAliveRef = useRef<number | null>(null);
-  const reconnectTimerRef = useRef<number | null>(null);
-  const idSetRef = useRef<Set<string>>(new Set()); // de-dupe ids
-  const [isConnected, setIsConnected] = useState(false);
-
-  // ————— WebSocket —————
-  useEffect(() => {
-    function connect() {
-      // If your frontend runs inside Docker, use: ws://host.docker.internal:8000/ws/alerts
-      wsRef.current = new WebSocket("ws://localhost:8000/ws/alerts");
-
-      wsRef.current.onopen = () => {
-        setIsConnected(true);
-        keepAliveRef.current = window.setInterval(() => {
-          try { wsRef.current?.send("ping"); } catch {}
-        }, 25000) as unknown as number;
-      };
-
-      wsRef.current.onmessage = (event) => {
-        let data: any;
-        try { data = JSON.parse(event.data); } catch { return; } // ignore non-JSON
-        if (data?.type === "hello" || data?.type === "ping") return;
-
-        // Map fraud flag
-        const fraudVal =
-          typeof data.fraud === "number" ? data.fraud :
-          typeof data.prediction === "number" ? data.prediction :
-          typeof data.is_fraud === "number" ? data.is_fraud : 0;
-
-        // Only keep FRAUD
-        if (Number(fraudVal) !== 1) return;
-
-        // Build stable-ish id
-        const id = String(
-          data.trans_num ??
-          `${data.cc_num ?? data.user ?? "unknown"}:${data.kafka_offset ?? Date.now()}`
-        );
-        if (idSetRef.current.has(id)) return; // de-dupe
-        idSetRef.current.add(id);
-
-        const mapped: Alert = {
-          id,
-          user: String(data.user ?? data.cc_num ?? data.card_id ?? "unknown"),
-          amount: Number(data.amount ?? data.amt ?? 0),
-          fraud: 1,
-          score: typeof data.score === "number" ? data.score : undefined,
-          ts: typeof data.kafka_ts === "number" ? data.kafka_ts : Date.now(),
-          raw: data,
-        };
-
-        setAllAlerts((prev) => {
-          const next = [mapped, ...prev];
-          if (next.length > MAX_STORED) {
-            const trimmed = next.slice(0, MAX_STORED);
-            idSetRef.current = new Set(trimmed.map(a => a.id)); // rebuild de-dupe set
-            return trimmed;
-          }
-          return next;
-        });
-      };
-
-      wsRef.current.onclose = () => {
-        setIsConnected(false);
-        if (keepAliveRef.current) window.clearInterval(keepAliveRef.current);
-        reconnectTimerRef.current = window.setTimeout(connect, 3000) as unknown as number;
-      };
-
-      wsRef.current.onerror = (err) => {
-        console.error("WebSocket error:", err);
-        wsRef.current?.close();
-      };
-    }
-
-    connect();
-    return () => {
-      if (keepAliveRef.current) window.clearInterval(keepAliveRef.current);
-      if (reconnectTimerRef.current) window.clearTimeout(reconnectTimerRef.current);
-      wsRef.current?.close();
-    };
-  }, []);
-
-  // FRAUD-only already enforced; still memoize for slicing/sorting
+  // FRAUD-only already enforced in context; still memoize for slicing/sorting
   const fraudAlerts = useMemo(() => allAlerts, [allAlerts]);
 
   // ————— Sorting —————

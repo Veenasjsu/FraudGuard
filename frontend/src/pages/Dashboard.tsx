@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Download, Pause, Play, RefreshCw, WifiOff, Wifi } from "lucide-react";
+import { useFraudAlerts } from "../contexts/FraudAlertsContext";
 import {
   AreaChart,
   Area,
@@ -28,16 +29,7 @@ import {
  */
 
 /** Types **/
-export type RawAlert = Record<string, unknown>;
-export type Alert = {
-  id: string; // stable id (trans_num or composed)
-  user: string;
-  amount: number;
-  fraud: 0 | 1;
-  score?: number;
-  ts?: number; // epoch millis
-  raw?: RawAlert;
-};
+import type { Alert } from "../contexts/FraudAlertsContext";
 
 /** Utils **/
 const INR = (n: number) =>
@@ -50,170 +42,6 @@ const INR = (n: number) =>
 const fmtNum = (n: number) => new Intl.NumberFormat("en-IN").format(Math.round(n));
 
 const humanTime = (t?: number) => (t ? new Date(t).toLocaleString() : "");
-
-const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
-
-const WS_URL =
-  (import.meta as any)?.env?.VITE_WS_ALERTS_URL ||
-  (typeof window !== "undefined" && (window as any)?.WS_ALERTS_URL) ||
-  (typeof location !== "undefined" && location.hostname === "localhost"
-    ? "ws://localhost:8000/ws/alerts"
-    : typeof location !== "undefined"
-    ? `wss://${location.host}/ws/alerts`
-    : "ws://localhost:8000/ws/alerts");
-
-/** Config **/
-const MAX_STORED = 2000; // memory cap
-const PING_INTERVAL_MS = 25_000;
-
-/** A tiny bounded set for de-duping ids **/
-class BoundedIdSet {
-  private set = new Set<string>();
-  constructor(private capacity: number) {}
-  has(id: string) {
-    return this.set.has(id);
-  }
-  add(id: string) {
-    this.set.add(id);
-    if (this.set.size > this.capacity) {
-      const first = this.set.values().next().value as string | undefined;
-      if (first) this.set.delete(first);
-    }
-  }
-  rebuild(ids: string[]) {
-    this.set = new Set(ids.slice(0, this.capacity));
-  }
-  clear() {
-    this.set.clear();
-  }
-}
-
-/** WebSocket hook with auto-retry, pause, and keepalive **/
-function useFraudStream() {
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [connected, setConnected] = useState(false);
-  const [paused, setPaused] = useState(false);
-
-  const wsRef = useRef<WebSocket | null>(null);
-  const pingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const backoffRef = useRef(1000); // 1s → 30s
-  const idSetRef = useRef(new BoundedIdSet(MAX_STORED * 2));
-
-  const resetBackoff = () => (backoffRef.current = 1000);
-
-  const connect = useCallback(() => {
-    if (paused) return; // don't connect while paused
-
-    try {
-      const ws = new WebSocket(WS_URL);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        setConnected(true);
-        resetBackoff();
-        // keepalive ping
-        pingTimerRef.current = setInterval(() => {
-          try {
-            wsRef.current?.send("ping");
-          } catch {}
-        }, PING_INTERVAL_MS);
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data?.type === "hello" || data?.type === "ping") return;
-
-          // Map fraud flag from multiple possible schemas
-          const fraudVal =
-            typeof data.fraud === "number"
-              ? data.fraud
-              : typeof data.prediction === "number"
-              ? data.prediction
-              : typeof data.is_fraud === "number"
-              ? data.is_fraud
-              : 0;
-
-          if (Number(fraudVal) !== 1) return; // dash focuses on FRAUD only
-
-          const id = String(
-            data.trans_num ??
-              `${data.cc_num ?? data.user ?? "unknown"}:$${data.kafka_offset ?? Date.now()}`
-          );
-          if (idSetRef.current.has(id)) return;
-
-          idSetRef.current.add(id);
-          const mapped: Alert = {
-            id,
-            user: String(data.user ?? data.cc_num ?? data.card_id ?? "unknown"),
-            amount: Number(data.amount ?? data.amt ?? 0),
-            fraud: 1,
-            score: typeof data.score === "number" ? data.score : undefined,
-            ts: typeof data.kafka_ts === "number" ? data.kafka_ts : Date.now(),
-            raw: data,
-          };
-
-          setAlerts((prev) => {
-            const next = [mapped, ...prev];
-            if (next.length > MAX_STORED) {
-              const trimmed = next.slice(0, MAX_STORED);
-              idSetRef.current.rebuild(trimmed.map((a) => a.id));
-              return trimmed;
-            }
-            return next;
-          });
-        } catch {
-          /* ignore non-JSON */
-        }
-      };
-
-      const scheduleReconnect = () => {
-        setConnected(false);
-        if (pingTimerRef.current) clearInterval(pingTimerRef.current);
-        if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-        const delay = clamp(backoffRef.current, 1000, 30_000);
-        backoffRef.current = delay * 2;
-        retryTimerRef.current = setTimeout(connect, delay);
-      };
-
-      ws.onclose = scheduleReconnect;
-      ws.onerror = scheduleReconnect;
-    } catch {
-      // next retry will handle
-    }
-  }, [paused]);
-
-  useEffect(() => {
-    connect();
-    return () => {
-      if (pingTimerRef.current) clearInterval(pingTimerRef.current);
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-      wsRef.current?.close();
-    };
-  }, [connect]);
-
-  const togglePause = () => {
-    setPaused((p) => {
-      const next = !p;
-      if (next) {
-        // going paused
-        wsRef.current?.close();
-      } else {
-        // unpausing
-        connect();
-      }
-      return next;
-    });
-  };
-
-  const clear = () => {
-    setAlerts([]);
-    idSetRef.current.clear();
-  };
-
-  return { alerts, connected, paused, togglePause, clear } as const;
-}
 
 /** Bucketing helpers for charts **/
 function useTimeBuckets(alerts: Alert[], minutes = 60) {
@@ -293,7 +121,7 @@ function TBtn({
 
 /** Main Dashboard **/
 export default function Dashboard() {
-  const { alerts, connected, paused, togglePause, clear } = useFraudStream();
+  const { alerts, connected, paused, togglePause, clear } = useFraudAlerts();
 
   // Filters
   const [query, setQuery] = useState("");
