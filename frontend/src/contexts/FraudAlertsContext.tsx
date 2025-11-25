@@ -23,7 +23,7 @@ const FraudAlertsContext = createContext<FraudAlertsContextType | undefined>(und
 
 // Constants
 const STORAGE_KEY = "fraudguard_global_alerts";
-const MAX_STORED = 2000;
+const MAX_STORED = 5000; // Increased to store more transactions with all model predictions
 const WS_URL =
   (import.meta as any)?.env?.VITE_WS_ALERTS_URL ||
   (typeof window !== "undefined" && (window as any)?.WS_ALERTS_URL) ||
@@ -117,17 +117,19 @@ export function FraudAlertsProvider({ children }: { children: React.ReactNode })
           const data = JSON.parse(event.data);
           if (data?.type === "hello" || data?.type === "ping") return;
 
-          // Map fraud flag from multiple possible schemas
-          const fraudVal =
-            typeof data.fraud === "number"
-              ? data.fraud
-              : typeof data.prediction === "number"
-              ? data.prediction
-              : typeof data.is_fraud === "number"
-              ? data.is_fraud
-              : 0;
-
-          if (Number(fraudVal) !== 1) return; // Only keep fraud alerts
+          // Store ALL transactions that have predictions from all three models
+          // This allows comparing which transactions each model flagged as fraud when switching models
+          // Check if we have predictions from all three models (or at least RF + one other)
+          const hasRfPred = data.rf_fraud_prediction !== undefined || data.fraud !== undefined;
+          const hasXgbPred = data.xgb_fraud_prediction !== undefined;
+          const hasIfPred = data.if_fraud_prediction !== undefined;
+          
+          // Store if we have at least RF prediction (required) and ideally all three
+          // This ensures we can compare models properly
+          if (!hasRfPred) return; // Skip if no RF prediction (backward compat)
+          
+          // Store ALL transactions with predictions, regardless of fraud status
+          // This way switching models will show different results
 
           const id = String(
             data.trans_num ??
@@ -136,14 +138,22 @@ export function FraudAlertsProvider({ children }: { children: React.ReactNode })
           if (idSetRef.current.has(id)) return;
 
           idSetRef.current.add(id);
+          
+          // Determine if any model predicts fraud (for backward compatibility)
+          const rfFraud = Number(data.rf_fraud_prediction ?? data.fraud ?? 0) === 1;
+          const xgbFraud = Number(data.xgb_fraud_prediction ?? 0) === 1;
+          const ifFraud = Number(data.if_fraud_prediction ?? 0) === 1;
+          const hasAnyFraud = rfFraud || xgbFraud || ifFraud;
+          
+          // Store all model predictions in the alert
           const mapped: Alert = {
             id,
             user: String(data.user ?? data.cc_num ?? data.card_id ?? "unknown"),
             amount: Number(data.amount ?? data.amt ?? 0),
-            fraud: 1,
-            score: typeof data.score === "number" ? data.score : undefined,
+            fraud: hasAnyFraud ? 1 : 0, // Set based on any model predicting fraud
+            score: typeof data.rf_score === "number" ? data.rf_score : (typeof data.score === "number" ? data.score : undefined),
             ts: typeof data.kafka_ts === "number" ? data.kafka_ts : Date.now(),
-            raw: data,
+            raw: data, // Store full raw data with all model predictions
           };
 
           setAlerts((prev) => {
@@ -179,10 +189,26 @@ export function FraudAlertsProvider({ children }: { children: React.ReactNode })
   }, [paused, resetBackoff]);
 
   // Initialize de-duplication set from loaded alerts on mount
+  // Also check if old data needs migration (transactions without all three predictions)
   useEffect(() => {
     const loaded = loadAlertsFromStorage();
     if (loaded.length > 0) {
-      idSetRef.current.rebuild(loaded.map((a) => a.id));
+      // Check if we have transactions with all three model predictions
+      const hasMultiModelData = loaded.some((a) => {
+        const raw = a.raw || {};
+        return raw.rf_fraud_prediction !== undefined &&
+               raw.xgb_fraud_prediction !== undefined &&
+               raw.if_fraud_prediction !== undefined;
+      });
+      
+      if (!hasMultiModelData && loaded.length > 0) {
+        // Old data format - clear it so new transactions with all predictions can be stored
+        console.log("⚠️ Detected old data format without all model predictions. Clearing for fresh start.");
+        localStorage.removeItem(STORAGE_KEY);
+        setAlerts([]);
+      } else {
+        idSetRef.current.rebuild(loaded.map((a) => a.id));
+      }
     }
   }, []);
 

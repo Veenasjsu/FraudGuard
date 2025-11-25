@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useModelSelector } from "../contexts/ModelSelectorContext";
+import { useFraudAlerts } from "../contexts/FraudAlertsContext";
 
 type Tx = {
   trans_num: string;
@@ -12,6 +14,12 @@ type Tx = {
   score?: number;
   kafka_ts?: number;
   trans_date_trans_time?: string;
+  rf_fraud_prediction?: 0 | 1;
+  xgb_fraud_prediction?: 0 | 1;
+  if_fraud_prediction?: 0 | 1;
+  rf_score?: number;
+  xgb_score?: number;
+  if_score?: number;
   [k: string]: any;
 };
 
@@ -37,8 +45,9 @@ const formatTs = (tx: Tx) => {
 };
 
 export default function Transactions() {
-  const [rows, setRows] = useState<Tx[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { getPrediction, getScore, getModelInfo } = useModelSelector();
+  const { alerts } = useFraudAlerts(); // Use WebSocket context instead of fetching from server
+  const [loading, setLoading] = useState(false);
 
   // Controls (category/merchant removed)
   const [q, setQ] = useState("");
@@ -49,16 +58,34 @@ export default function Transactions() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [selected, setSelected] = useState<Tx | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    fetch("http://localhost:8000/transactions")
-      .then((r) => r.json())
-      .then((data: Tx[]) => { if (alive) setRows(Array.isArray(data) ? data : []); })
-      .catch((e) => console.error("Fetch /transactions failed:", e))
-      .finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
-  }, []);
+  // Convert alerts from context to transaction format
+  const rows = useMemo(() => {
+    return alerts.map(alert => {
+      const raw = alert.raw || {};
+      const tx = {
+        trans_num: String(raw.trans_num ?? alert.id),
+        cc_num: raw.cc_num ?? raw.user ?? alert.user,
+        merchant: raw.merchant,
+        category: raw.category,
+        amt: raw.amt ?? raw.amount ?? alert.amount,
+        city: raw.city,
+        state: raw.state,
+        fraud: alert.fraud,
+        score: alert.score,
+        kafka_ts: raw.kafka_ts ?? alert.ts,
+        trans_date_trans_time: raw.trans_date_trans_time,
+        rf_fraud_prediction: raw.rf_fraud_prediction,
+        xgb_fraud_prediction: raw.xgb_fraud_prediction,
+        if_fraud_prediction: raw.if_fraud_prediction,
+        rf_score: raw.rf_score,
+        xgb_score: raw.xgb_score,
+        if_score: raw.if_score,
+        ...raw, // Include all raw data
+        raw: raw, // Preserve raw data for getPrediction/getScore functions
+      } as Tx & { raw?: any };
+      return tx;
+    });
+  }, [alerts]);
 
   // Filtering + search (only status + search now)
   const filtered = useMemo(() => {
@@ -66,7 +93,9 @@ export default function Transactions() {
 
     if (statusFilter) {
       r = r.filter(tx => {
-        const f = Number(tx.fraud ?? 0);
+        // Use raw data for prediction if available, otherwise use tx directly
+        const raw = (tx as any).raw || tx;
+        const f = getPrediction(raw);
         return statusFilter === "fraud" ? f === 1 : f !== 1;
       });
     }
@@ -87,17 +116,20 @@ export default function Transactions() {
     const mul = sortDir === "asc" ? 1 : -1;
     const toTime = (tx: Tx) => (tx.kafka_ts ?? (tx.trans_date_trans_time ? +new Date(tx.trans_date_trans_time) : 0));
     return filtered.slice().sort((a, b) => {
+      // Use raw data for prediction/score if available
+      const rawA = (a as any).raw || a;
+      const rawB = (b as any).raw || b;
       switch (sortKey) {
         case "time":     return (toTime(a) - toTime(b)) * mul;
         case "amount":   return ((a.amt ?? 0) - (b.amt ?? 0)) * mul;
-        case "score":    return ((a.score ?? -1) - (b.score ?? -1)) * mul;
-        case "fraud":    return (Number(a.fraud ?? 0) - Number(b.fraud ?? 0)) * mul;
+        case "score":    return ((getScore(rawA) ?? -1) - (getScore(rawB) ?? -1)) * mul;
+        case "fraud":    return (Number(getPrediction(rawA)) - Number(getPrediction(rawB))) * mul;
         case "merchant": return String(a.merchant ?? "").localeCompare(String(b.merchant ?? "")) * mul;
         case "category": return String(a.category ?? "").localeCompare(String(b.category ?? "")) * mul;
         default:         return 0;
       }
     });
-  }, [filtered, sortKey, sortDir]);
+  }, [filtered, sortKey, sortDir, getPrediction, getScore]);
 
   // Pagination
   const total = sorted.length;
@@ -117,7 +149,8 @@ export default function Transactions() {
     const csvSafe = (v: string) => (v.includes(",") || v.includes('"') || v.includes("\n")) ? `"${v.replace(/"/g,'""')}"` : v;
 
     sorted.forEach(tx => {
-      const pred = Number(tx.fraud ?? 0) === 1 ? "FRAUD" : "LEGIT";
+      const pred = getPrediction(tx) === 1 ? "FRAUD" : "LEGIT";
+      const score = getScore(tx);
       const cityState = [tx.city, tx.state].filter(Boolean).join(", ");
       lines.push([
         csvSafe(String(tx.trans_num ?? "")),
@@ -127,7 +160,7 @@ export default function Transactions() {
         csvSafe(String(tx.category ?? "")),
         csvSafe(cityState),
         csvSafe(pred),
-        csvSafe(typeof tx.score === "number" ? tx.score.toFixed(2) : ""),
+        csvSafe(score !== undefined ? score.toFixed(2) : ""),
         csvSafe(formatTs(tx)),
       ].join(","));
     });
@@ -140,40 +173,43 @@ export default function Transactions() {
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">Transactions</h1>
-        <div className="flex flex-wrap gap-2">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Transactions</h1>
+          <p className="text-sm text-gray-600 mt-1">Using {getModelInfo().fullName}</p>
+        </div>
+        <div className="flex flex-wrap gap-3">
           <input
             value={q}
             onChange={(e) => { setQ(e.target.value); setPage(1); }}
             placeholder="Search card, merchant, transaction ID..."
             aria-label="Search"
-            className="w-64 rounded border px-3 py-2 text-sm"
+            className="w-64 rounded-lg border border-gray-300 px-4 py-2 text-sm bg-white text-gray-900 placeholder-gray-400 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           />
           {/* Status only */}
           <select
             value={statusFilter}
             onChange={(e) => { setStatusFilter(e.target.value as any); setPage(1); }}
             aria-label="Status filter"
-            className="rounded border px-3 py-2 text-sm"
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           >
             <option value="">All statuses</option>
             <option value="fraud">Fraud only</option>
             <option value="legit">Legit only</option>
           </select>
-          <button onClick={exportCSV} className="rounded border px-3 py-2 text-sm hover:bg-gray-50">
+          <button onClick={exportCSV} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium bg-white text-gray-700 hover:bg-gray-50 shadow-sm transition-colors">
             Export CSV
           </button>
         </div>
       </div>
 
-      <div className="text-sm text-gray-600 mt-2">
+      <div className="text-sm text-gray-600 mt-3 font-medium">
         {loading ? "Loading…" : `${total} result${total === 1 ? "" : "s"}`}
       </div>
 
-      <div className="overflow-x-auto mt-4">
+      <div className="overflow-x-auto mt-4 rounded-xl border border-gray-200 bg-white shadow-md">
         <table className="min-w-full text-sm text-left">
-          <thead className="border-b bg-gray-50 text-gray-600">
+          <thead className="bg-gray-100 border-b border-gray-200">
             <tr>
               <Th label="Transaction ID" />
               <Th label="Card/User ID" />
@@ -187,36 +223,39 @@ export default function Transactions() {
           </thead>
           <tbody>
             {pageRows.map((tx) => {
-              const isFraud = Number(tx.fraud ?? 0) === 1;
+              // Use raw data for prediction if available
+              const raw = (tx as any).raw || tx;
+              const isFraud = getPrediction(raw) === 1;
+              const score = getScore(raw);
               return (
                 <tr
                   key={tx.trans_num}
-                  className={`border-b cursor-pointer transition ${isFraud ? "bg-red-50 hover:bg-red-100 text-red-700" : "bg-green-50 hover:bg-green-100 text-green-700"}`}
+                  className={`border-b border-gray-100 cursor-pointer transition-colors ${isFraud ? "bg-red-50/50 hover:bg-red-100" : "bg-green-50/50 hover:bg-green-100"}`}
                   onClick={() => setSelected(tx)}
                 >
-                  <td className="py-2 px-4 font-mono">{tx.trans_num}</td>
-                  <td className="py-2 px-4 font-mono">{maskCard(tx.cc_num)}</td>
-                  <td className="py-2 px-4">{tx.merchant ?? "—"}</td>
-                  <td className="py-2 px-4">{tx.category ?? "—"}</td>
-                  <td className="py-2 px-4">{fmtINR(tx.amt ?? 0)}</td>
-                  <td className="py-2 px-4">{isFraud ? "🟥 Fraud" : "✅ Legit"}</td>
-                  <td className="py-2 px-4">{typeof tx.score === "number" ? tx.score.toFixed(2) : "—"}</td>
-                  <td className="py-2 px-4">{formatTs(tx)}</td>
+                  <td className={`py-3 px-6 font-mono text-sm ${isFraud ? "text-red-900" : "text-green-900"}`}>{tx.trans_num}</td>
+                  <td className={`py-3 px-6 font-mono text-sm ${isFraud ? "text-red-900" : "text-green-900"}`}>{maskCard(tx.cc_num)}</td>
+                  <td className={`py-3 px-6 text-sm font-medium ${isFraud ? "text-red-800" : "text-green-800"}`}>{tx.merchant ?? "—"}</td>
+                  <td className={`py-3 px-6 text-sm ${isFraud ? "text-red-800" : "text-green-800"}`}>{tx.category ?? "—"}</td>
+                  <td className={`py-3 px-6 text-sm font-semibold ${isFraud ? "text-red-900" : "text-green-900"}`}>{fmtINR(tx.amt ?? 0)}</td>
+                  <td className={`py-3 px-6 text-sm font-semibold ${isFraud ? "text-red-700" : "text-green-700"}`}>{isFraud ? "🟥 Fraud" : "✅ Legit"}</td>
+                  <td className={`py-3 px-6 text-sm font-medium ${isFraud ? "text-red-800" : "text-green-800"}`}>{score !== undefined ? score.toFixed(2) : "—"}</td>
+                  <td className={`py-3 px-6 text-sm text-gray-600`}>{formatTs(tx)}</td>
                 </tr>
               );
             })}
             {!loading && pageRows.length === 0 && (
-              <tr><td className="py-6 px-4 text-center text-gray-500" colSpan={8}>No results.</td></tr>
+              <tr><td className="py-8 px-6 text-center text-gray-500 text-sm" colSpan={8}>No results found.</td></tr>
             )}
           </tbody>
         </table>
       </div>
 
       {totalPages > 1 && (
-        <div className="mt-4 flex items-center justify-between">
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1 rounded border hover:bg-gray-50 disabled:opacity-50">‹ Prev</button>
-          <div className="text-sm text-gray-600">Page <b>{page}</b> of <b>{totalPages}</b></div>
-          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="px-3 py-1 rounded border hover:bg-gray-50 disabled:opacity-50">Next ›</button>
+        <div className="mt-6 flex items-center justify-between bg-white/95 backdrop-blur-sm py-3 px-4 border-t border-gray-200 rounded-b-xl shadow-sm">
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-4 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium text-gray-700 shadow-sm transition-colors">‹ Prev</button>
+          <div className="text-sm text-gray-700 font-medium">Page <b className="text-gray-900">{page}</b> of <b className="text-gray-900">{totalPages}</b></div>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="px-4 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium text-gray-700 shadow-sm transition-colors">Next ›</button>
         </div>
       )}
 
@@ -231,8 +270,15 @@ export default function Transactions() {
               <Field label="Transaction ID" value={selected.trans_num} mono />
               <Field label="Card/User ID" value={maskCard(selected.cc_num)} mono />
               <Field label="Amount" value={fmtINR(selected.amt ?? 0)} />
-              <Field label="Prediction" value={Number(selected.fraud ?? 0) === 1 ? "🟥 Fraud" : "✅ Legit"} />
-              <Field label="Score" value={typeof selected.score === "number" ? selected.score.toFixed(2) : "—"} />
+              <Field label={`Prediction (${getModelInfo().fullName})`} value={(() => {
+                const raw = (selected as any).raw || selected;
+                return getPrediction(raw) === 1 ? "🟥 Fraud" : "✅ Legit";
+              })()} />
+              <Field label={`Score (${getModelInfo().fullName})`} value={(() => {
+                const raw = (selected as any).raw || selected;
+                const score = getScore(raw);
+                return score !== undefined ? score.toFixed(2) : "—";
+              })()} />
               <Field label="Timestamp" value={formatTs(selected)} />
               <Field label="Merchant" value={selected.merchant ?? "—"} />
               <Field label="Category" value={selected.category ?? "—"} />
@@ -258,9 +304,9 @@ function Th(props: { label: string; sortKey?: SortKey; current?: SortKey; dir?: 
   const isActive = sortable && current === sortKey;
   const arrow = isActive ? (dir === "asc" ? "↑" : "↓") : "";
   return (
-    <th className={`py-2 px-4 ${sortable ? "cursor-pointer select-none" : ""}`} onClick={sortable ? () => onSort?.(sortKey!) : undefined} title={sortable ? "Sort" : undefined}>
+    <th className={`py-3 px-6 text-left font-semibold text-gray-700 ${sortable ? "cursor-pointer select-none hover:bg-gray-200 transition-colors" : ""}`} onClick={sortable ? () => onSort?.(sortKey!) : undefined} title={sortable ? "Sort" : undefined}>
       <span className="inline-flex items-center gap-1">
-        {label} {arrow && <span className="text-xs">{arrow}</span>}
+        {label} {arrow && <span className="text-sm text-indigo-600">{arrow}</span>}
       </span>
     </th>
   );
@@ -268,9 +314,9 @@ function Th(props: { label: string; sortKey?: SortKey; current?: SortKey; dir?: 
 
 function Field({ label, value, mono = false }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
-    <div className="flex items-center justify-between gap-3 border rounded p-2">
-      <div className="text-gray-600">{label}</div>
-      <div className={`font-medium ${mono ? "font-mono" : ""}`}>{value}</div>
+    <div className="flex items-center justify-between gap-3 border border-gray-200 rounded-lg p-3 bg-gray-50">
+      <div className="text-sm font-medium text-gray-700">{label}</div>
+      <div className={`text-sm font-semibold text-gray-900 ${mono ? "font-mono" : ""}`}>{value}</div>
     </div>
   );
 }

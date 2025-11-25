@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Download, Pause, Play, RefreshCw, WifiOff, Wifi } from "lucide-react";
 import { useFraudAlerts } from "../contexts/FraudAlertsContext";
+import { useModelSelector } from "../contexts/ModelSelectorContext";
 import {
   AreaChart,
   Area,
@@ -87,10 +88,10 @@ function exportCSV(rows: Alert[]) {
 /** KPI Card **/
 function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="rounded-2xl p-4 bg-white dark:bg-neutral-900 shadow-sm border border-neutral-200 dark:border-neutral-800">
-      <div className="text-xs uppercase tracking-wide text-neutral-500">{label}</div>
-      <div className="mt-1 text-2xl font-semibold">{value}</div>
-      {sub && <div className="mt-1 text-xs text-neutral-500">{sub}</div>}
+    <div className="rounded-xl p-5 bg-white shadow-md border border-gray-200 hover:shadow-lg transition-shadow">
+      <div className="text-xs uppercase tracking-wide text-gray-500 font-medium mb-1">{label}</div>
+      <div className="mt-1 text-3xl font-bold text-gray-900">{value}</div>
+      {sub && <div className="mt-2 text-sm text-gray-600">{sub}</div>}
     </div>
   );
 }
@@ -112,7 +113,7 @@ function TBtn({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm bg-white hover:bg-neutral-50 disabled:opacity-50 dark:bg-neutral-900 dark:hover:bg-neutral-800 dark:border-neutral-800"
+      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium bg-white hover:bg-gray-50 text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow transition-shadow"
     >
       {children}
     </button>
@@ -122,16 +123,34 @@ function TBtn({
 /** Main Dashboard **/
 export default function Dashboard() {
   const { alerts, connected, paused, togglePause, clear } = useFraudAlerts();
+  const { getPrediction, getScore, getModelInfo } = useModelSelector();
 
   // Filters
   const [query, setQuery] = useState("");
   const [windowMin, setWindowMin] = useState(60); // last N minutes for charts/table
 
+  // Count fraud alerts per model for comparison
+  const modelCounts = useMemo(() => {
+    const cutoff = Date.now() - windowMin * 60_000;
+    const recentAlerts = alerts.filter((a) => (a.ts ?? 0) >= cutoff);
+    return {
+      rf: recentAlerts.filter((a) => Number(a.raw?.rf_fraud_prediction ?? a.raw?.fraud ?? 0) === 1).length,
+      xgb: recentAlerts.filter((a) => Number(a.raw?.xgb_fraud_prediction ?? 0) === 1).length,
+      if: recentAlerts.filter((a) => Number(a.raw?.if_fraud_prediction ?? 0) === 1).length,
+    };
+  }, [alerts, windowMin]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const cutoff = Date.now() - windowMin * 60_000;
-    return alerts.filter((a) => (a.ts ?? 0) >= cutoff && (!q || a.user.toLowerCase().includes(q)));
-  }, [alerts, query, windowMin]);
+    return alerts
+      .filter((a) => {
+        // Filter by selected model's prediction
+        const raw = a.raw || {};
+        return getPrediction(raw) === 1;
+      })
+      .filter((a) => (a.ts ?? 0) >= cutoff && (!q || a.user.toLowerCase().includes(q)));
+  }, [alerts, query, windowMin, getPrediction]);
 
   const kpiTotalFraud = filtered.length;
   const kpiTotalAmount = filtered.reduce((sum, a) => sum + a.amount, 0);
@@ -163,16 +182,21 @@ export default function Dashboard() {
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-6">
       {/* Header */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold">🛡️ Fraud Guard Dashboard</h1>
-          <div className="text-xs text-neutral-500 mt-1">
-            Live fraud-only stream • {connected ? (
-              <span className="inline-flex items-center gap-1 text-green-600"><Wifi className="w-3 h-3"/> connected</span>
+          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">🛡️ Fraud Guard Dashboard</h1>
+          <div className="text-sm text-gray-600 mt-1 flex flex-wrap items-center gap-2">
+            <span>Model: <strong className="text-gray-900">{getModelInfo().fullName}</strong></span>
+            <span className="text-gray-400">•</span>
+            <span>Live fraud-only stream</span>
+            <span className="text-gray-400">•</span>
+            <span className="font-medium text-gray-700">RF: {modelCounts.rf} | XGB: {modelCounts.xgb} | IF: {modelCounts.if}</span>
+            {connected ? (
+              <span className="inline-flex items-center gap-1 text-green-600 font-medium"><Wifi className="w-4 h-4"/> Connected</span>
             ) : (
-              <span className="inline-flex items-center gap-1 text-red-600"><WifiOff className="w-3 h-3"/> reconnecting…</span>
+              <span className="inline-flex items-center gap-1 text-red-600 font-medium"><WifiOff className="w-4 h-4"/> Reconnecting…</span>
             )}
-            {lastTs ? <span className="ml-2">Last event: {humanTime(lastTs)}</span> : null}
+            {lastTs && <span className="text-gray-500">Last event: {humanTime(lastTs)}</span>}
           </div>
         </div>
 
@@ -191,18 +215,18 @@ export default function Dashboard() {
       </div>
 
       {/* Controls */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-        <div className="rounded-2xl p-3 bg-white dark:bg-neutral-900 shadow-sm border border-neutral-200 dark:border-neutral-800">
-          <label className="text-xs text-neutral-500">Search user</label>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="rounded-xl p-4 bg-white shadow-md border border-gray-200">
+          <label className="text-sm font-medium text-gray-700 mb-2 block">Search user</label>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="e.g. user id / cc_num"
-            className="mt-1 w-full rounded-xl border px-3 py-2 bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800 outline-none focus:ring-2 focus:ring-neutral-300"
+            className="w-full rounded-lg border border-gray-300 px-4 py-2 bg-white text-gray-900 placeholder-gray-400 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           />
         </div>
-        <div className="rounded-2xl p-3 bg-white dark:bg-neutral-900 shadow-sm border border-neutral-200 dark:border-neutral-800">
-          <label className="text-xs text-neutral-500">Window (minutes)</label>
+        <div className="rounded-xl p-4 bg-white shadow-md border border-gray-200">
+          <label className="text-sm font-medium text-gray-700 mb-2 block">Window (minutes)</label>
           <input
             type="range"
             min={5}
@@ -212,11 +236,11 @@ export default function Dashboard() {
             onChange={(e) => setWindowMin(Number(e.target.value))}
             className="w-full mt-2"
           />
-          <div className="text-xs text-neutral-500 mt-1">Showing last {windowMin} minutes</div>
+          <div className="text-sm text-gray-600 mt-2">Showing last {windowMin} minutes</div>
         </div>
-        <div className="rounded-2xl p-3 bg-white dark:bg-neutral-900 shadow-sm border border-neutral-200 dark:border-neutral-800">
-          <label className="text-xs text-neutral-500">Status</label>
-          <div className="mt-1 text-sm">
+        <div className="rounded-xl p-4 bg-white shadow-md border border-gray-200">
+          <label className="text-sm font-medium text-gray-700 mb-2 block">Status</label>
+          <div className="text-base text-gray-900 font-medium">
             {fmtNum(filtered.length)} alerts in window • Total value {INR(
               filtered.reduce((s, a) => s + a.amount, 0)
             )}
@@ -234,9 +258,9 @@ export default function Dashboard() {
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-        <div className="lg:col-span-2 rounded-2xl p-4 bg-white dark:bg-neutral-900 shadow-sm border border-neutral-200 dark:border-neutral-800">
-          <div className="mb-2 text-sm font-medium">Fraud Count (per minute)</div>
-          <div className="h-56">
+        <div className="lg:col-span-2 rounded-xl p-5 bg-white shadow-md border border-gray-200">
+          <div className="mb-3 text-base font-semibold text-gray-900">Fraud Count (per minute)</div>
+          <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={buckets} margin={{ left: 10, right: 10, top: 10, bottom: 0 }}>
                 <defs>
@@ -245,32 +269,35 @@ export default function Dashboard() {
                     <stop offset="100%" stopColor="#ef4444" stopOpacity={0.05} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis
                   dataKey="t"
                   tickFormatter={(t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  stroke="#6b7280"
+                  style={{ fontSize: '12px' }}
                 />
-                <YAxis allowDecimals={false} />
+                <YAxis allowDecimals={false} stroke="#6b7280" style={{ fontSize: '12px' }} />
                 <Tooltip
                   labelFormatter={(t) => new Date(t as number).toLocaleTimeString()}
                   formatter={(v: any, n: any) => [v, n === "count" ? "alerts" : "amount"]}
+                  contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '8px' }}
                 />
-                <Area type="monotone" dataKey="count" stroke="#ef4444" fill="url(#grad)" />
+                <Area type="monotone" dataKey="count" stroke="#ef4444" strokeWidth={2} fill="url(#grad)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div className="rounded-2xl p-4 bg-white dark:bg-neutral-900 shadow-sm border border-neutral-200 dark:border-neutral-800">
-          <div className="mb-2 text-sm font-medium">Amount Distribution</div>
-          <div className="h-56">
+        <div className="rounded-xl p-5 bg-white shadow-md border border-gray-200">
+          <div className="mb-3 text-base font-semibold text-gray-900">Amount Distribution</div>
+          <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={amtBins} margin={{ left: 10, right: 10, top: 10, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="range" interval={0} angle={-20} textAnchor="end" height={50} />
-                <YAxis allowDecimals={false} />
-                <Tooltip />
-                <Bar dataKey="count" fill="#ef4444" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="range" interval={0} angle={-20} textAnchor="end" height={50} stroke="#6b7280" style={{ fontSize: '11px' }} />
+                <YAxis allowDecimals={false} stroke="#6b7280" style={{ fontSize: '12px' }} />
+                <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '8px' }} />
+                <Bar dataKey="count" fill="#ef4444" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -278,35 +305,35 @@ export default function Dashboard() {
       </div>
 
       {/* Alerts Table */}
-      <div className="rounded-2xl bg-white dark:bg-neutral-900 shadow-sm border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-        <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between">
-          <div className="text-sm font-medium">Alerts ({fmtNum(filtered.length)})</div>
-          <div className="text-xs text-neutral-500">Showing last {windowMin} minutes</div>
+      <div className="rounded-xl bg-white shadow-md border border-gray-200 overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+          <div className="text-base font-semibold text-gray-900">Alerts ({fmtNum(filtered.length)})</div>
+          <div className="text-sm text-gray-600">Showing last {windowMin} minutes</div>
         </div>
         <div className="max-h-[480px] overflow-auto">
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-neutral-50 dark:bg-neutral-950 text-neutral-500">
+            <thead className="sticky top-0 bg-gray-100 border-b border-gray-200">
               <tr>
-                <th className="text-left font-medium px-4 py-2">User</th>
-                <th className="text-left font-medium px-4 py-2">Amount</th>
-                <th className="text-left font-medium px-4 py-2">Score</th>
-                <th className="text-left font-medium px-4 py-2">Time</th>
-                <th className="text-left font-medium px-4 py-2">ID</th>
+                <th className="text-left font-semibold text-gray-700 px-6 py-3">User</th>
+                <th className="text-left font-semibold text-gray-700 px-6 py-3">Amount</th>
+                <th className="text-left font-semibold text-gray-700 px-6 py-3">Score</th>
+                <th className="text-left font-semibold text-gray-700 px-6 py-3">Time</th>
+                <th className="text-left font-semibold text-gray-700 px-6 py-3">ID</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((a) => (
-                <tr key={a.id} className="border-t border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50/60 dark:hover:bg-neutral-800/30">
-                  <td className="px-4 py-2 font-medium">{a.user}</td>
-                  <td className="px-4 py-2">{INR(a.amount)}</td>
-                  <td className="px-4 py-2">{typeof a.score === "number" ? a.score.toFixed(2) : "—"}</td>
-                  <td className="px-4 py-2">{humanTime(a.ts)}</td>
-                  <td className="px-4 py-2 text-xs text-neutral-500 truncate max-w-[220px]" title={a.id}>{a.id}</td>
+                <tr key={a.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-3 font-medium text-gray-900">{a.user}</td>
+                  <td className="px-6 py-3 text-gray-700">{INR(a.amount)}</td>
+                  <td className="px-6 py-3 text-gray-700">{getScore(a.raw || {}) !== undefined ? getScore(a.raw || {})!.toFixed(2) : "—"}</td>
+                  <td className="px-6 py-3 text-gray-600">{humanTime(a.ts)}</td>
+                  <td className="px-6 py-3 text-xs text-gray-500 font-mono truncate max-w-[220px]" title={a.id}>{a.id}</td>
                 </tr>
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-neutral-500">
+                  <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
                     No frauds detected in the selected window.
                   </td>
                 </tr>
@@ -317,8 +344,8 @@ export default function Dashboard() {
       </div>
 
       {/* Footer */}
-      <div className="text-[11px] text-neutral-500 mt-4">
-        Tip: Set <code>VITE_WS_ALERTS_URL</code> to point the dashboard at your environment. This page only visualizes events with a fraud flag = 1.
+      <div className="text-xs text-gray-500 mt-6 text-center">
+        Tip: Set <code className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-700">VITE_WS_ALERTS_URL</code> to point the dashboard at your environment.
       </div>
     </div>
   );

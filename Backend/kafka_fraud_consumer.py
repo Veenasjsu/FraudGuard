@@ -12,7 +12,9 @@ from kafka import KafkaConsumer
 from kafka.errors import NoBrokersAvailable
 
 # ---------- Config ----------
-MODEL_PATH = os.getenv("MODEL_PATH", "fraud_model.pkl")
+RF_MODEL_PATH = os.getenv("RF_MODEL_PATH", "fraud_model.pkl")
+XGB_MODEL_PATH = os.getenv("XGB_MODEL_PATH", "fraud_model_xgb.pkl")
+IF_MODEL_PATH = os.getenv("IF_MODEL_PATH", "fraud_unsupervised.pkl")
 WS_URL = os.getenv("WS_URL", "http://ws:8000/broadcast")
 BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "fraudguard-kafka:9092")
 TOPIC = os.getenv("KAFKA_TOPIC", "transactions")
@@ -26,12 +28,28 @@ API_VERSION = (3, 5, 0)
 CONNECT_TRIES = int(os.getenv("KAFKA_CONNECT_TRIES", "20"))
 CONNECT_DELAY = float(os.getenv("KAFKA_CONNECT_DELAY", "3"))  # seconds
 
-# ---------- Model ----------
-model = joblib.load(MODEL_PATH)
+# ---------- Models ----------
+print("Loading models...")
+rf_model = joblib.load(RF_MODEL_PATH)
+print(f"✅ RandomForest model loaded from {RF_MODEL_PATH}")
+
+try:
+    xgb_model = joblib.load(XGB_MODEL_PATH)
+    print(f"✅ XGBoost model loaded from {XGB_MODEL_PATH}")
+except Exception as e:
+    print(f"⚠️ Could not load XGBoost model: {e}")
+    xgb_model = None
+
+try:
+    if_model = joblib.load(IF_MODEL_PATH)
+    print(f"✅ Isolation Forest model loaded from {IF_MODEL_PATH}")
+except Exception as e:
+    print(f"⚠️ Could not load Isolation Forest model: {e}")
+    if_model = None
 
 # Try to read exact columns the model expects (works for sklearn >= 1.0)
 try:
-    EXPECTED: List[str] = list(model.feature_names_in_)  # type: ignore[attr-defined]
+    EXPECTED: List[str] = list(rf_model.feature_names_in_)  # type: ignore[attr-defined]
 except Exception:
     # Fallback if model doesn't expose feature_names_in_
     EXPECTED = ['amt', 'city_pop', 'lat', 'long', 'merch_lat', 'merch_long']
@@ -99,16 +117,60 @@ def make_consumer(tries: int = CONNECT_TRIES, delay: float = CONNECT_DELAY) -> K
     raise SystemExit(f"Kafka not reachable after {tries} attempts: {last_err}")
 
 
-def predict_with_optional_proba(X: pd.DataFrame):
-    """Return (pred:int, proba:Optional[float])"""
-    proba: Optional[float] = None
+def predict_with_all_models(X: pd.DataFrame) -> Dict[str, Any]:
+    """Run all three models and return predictions with probabilities."""
+    results = {}
+    
+    # RandomForest prediction
     try:
-        proba = float(model.predict_proba(X)[0][1])  # type: ignore[call-arg]
-    except Exception:
-        # Model may not support predict_proba
-        pass
-    pred = int(model.predict(X)[0])
-    return pred, proba
+        rf_pred = int(rf_model.predict(X)[0])
+        rf_proba = None
+        try:
+            rf_proba = float(rf_model.predict_proba(X)[0][1])
+        except Exception:
+            pass
+        results['rf_fraud_prediction'] = rf_pred
+        results['rf_score'] = rf_proba
+        # For backward compatibility, also set 'fraud' to RF prediction
+        results['fraud'] = rf_pred
+        results['score'] = rf_proba
+    except Exception as e:
+        print(f"⚠️ RF prediction error: {e}")
+        results['rf_fraud_prediction'] = 0
+        results['fraud'] = 0
+    
+    # XGBoost prediction
+    if xgb_model is not None:
+        try:
+            xgb_pred = int(xgb_model.predict(X)[0])
+            xgb_proba = None
+            try:
+                xgb_proba = float(xgb_model.predict_proba(X)[0][1])
+            except Exception:
+                pass
+            results['xgb_fraud_prediction'] = xgb_pred
+            results['xgb_score'] = xgb_proba
+        except Exception as e:
+            print(f"⚠️ XGB prediction error: {e}")
+            results['xgb_fraud_prediction'] = 0
+    else:
+        results['xgb_fraud_prediction'] = 0
+    
+    # Isolation Forest prediction
+    if if_model is not None:
+        try:
+            if_pred_raw = if_model.predict(X)[0]
+            # Isolation Forest returns -1 for anomaly (fraud), 1 for normal
+            if_pred = 1 if if_pred_raw == -1 else 0
+            results['if_fraud_prediction'] = if_pred
+            # IF doesn't provide probability scores
+        except Exception as e:
+            print(f"⚠️ IF prediction error: {e}")
+            results['if_fraud_prediction'] = 0
+    else:
+        results['if_fraud_prediction'] = 0
+    
+    return results
 
 
 def main():
@@ -145,11 +207,15 @@ def main():
             # --- scoring + broadcast ---
             try:
                 X = to_dataframe(tx)
-                pred, proba = predict_with_optional_proba(X)
+                predictions = predict_with_all_models(X)
 
                 # concise, human-friendly log line to stdout
-                base = (f"[TX] part={msg.partition} off={msg.offset} pred={pred}"
-                        + (f" proba={proba:.4f}" if proba is not None else ""))
+                rf_pred = predictions.get('rf_fraud_prediction', 0)
+                rf_proba = predictions.get('rf_score')
+                base = (f"[TX] part={msg.partition} off={msg.offset} "
+                        f"RF={rf_pred} XGB={predictions.get('xgb_fraud_prediction', 0)} "
+                        f"IF={predictions.get('if_fraud_prediction', 0)}"
+                        + (f" proba={rf_proba:.4f}" if rf_proba is not None else ""))
                 amt = tx.get("amt"); city_pop = tx.get("city_pop")
                 extra = []
                 if amt is not None:     extra.append(f"amt={amt}")
@@ -159,8 +225,7 @@ def main():
 
                 enriched = {
                     **tx,
-                    "fraud": pred,
-                    **({"score": proba} if proba is not None else {}),
+                    **predictions,  # Includes all model predictions
                     "kafka_partition": msg.partition,
                     "kafka_offset": msg.offset,
                     "kafka_ts": msg.timestamp,

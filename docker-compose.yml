@@ -93,15 +93,19 @@ services:
     volumes:
       - ./:/opt/app
       - ./fraud_model.pkl:/opt/app/Backend/fraud_model.pkl
+      - ./fraud_model_xgb.pkl:/opt/app/Backend/fraud_model_xgb.pkl
+      - ./fraud_unsupervised.pkl:/opt/app/Backend/fraud_unsupervised.pkl
     environment:
       KAFKA_BOOTSTRAP: fraudguard-kafka:9092
       KAFKA_GROUP_ID: fraudguard-python-ws
-      MODEL_PATH: /opt/app/Backend/fraud_model.pkl
+      RF_MODEL_PATH: /opt/app/Backend/fraud_model.pkl
+      XGB_MODEL_PATH: /opt/app/Backend/fraud_model_xgb.pkl
+      IF_MODEL_PATH: /opt/app/Backend/fraud_unsupervised.pkl
       WS_URL: http://ws:8000/broadcast
       KAFKA_CONNECT_TRIES: "40"
       KAFKA_CONNECT_DELAY: "3"
     command: >
-      sh -c "pip install --no-cache-dir kafka-python joblib requests pandas scikit-learn==1.7.2 &&
+      sh -c "pip install --no-cache-dir kafka-python joblib requests pandas scikit-learn==1.7.2 xgboost &&
              python kafka_fraud_consumer.py"
     depends_on:
       kafka:
