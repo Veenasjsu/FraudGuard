@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Download, Pause, Play, RefreshCw, WifiOff, Wifi } from "lucide-react";
 import { useFraudAlerts } from "../contexts/FraudAlertsContext";
 import { useModelSelector } from "../contexts/ModelSelectorContext";
+import FraudMap from "../components/FraudMap";
 import {
   AreaChart,
   Area,
@@ -302,6 +303,11 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
         </div>
+      </div>
+
+      {/* Fraud Map */}
+      <div className="mb-6">
+        <FraudMap />
       </div>
 
       {/* Alerts Table */}

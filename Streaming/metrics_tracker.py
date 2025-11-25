@@ -6,6 +6,8 @@ from collections import defaultdict
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 import time
 from datetime import datetime
+import requests
+import os
 
 # Model paths
 XGB_MODEL_PATH = '/opt/app/fraud_model_xgb.pkl'
@@ -30,6 +32,9 @@ ground_truth = []
 
 # Metrics calculation interval (calculate every N transactions)
 METRICS_INTERVAL = 100
+
+# WebSocket server URL for sending metrics
+WS_URL = os.getenv("WS_URL", "http://ws:8000/broadcast")
 
 def calculate_metrics(y_true, y_pred, model_name):
     """Calculate and return all metrics for a model"""
@@ -58,6 +63,23 @@ def calculate_metrics(y_true, y_pred, model_name):
         'total_samples': len(y_true)
     }
 
+def send_metrics(metrics_dict):
+    """Send metrics to WebSocket server"""
+    if metrics_dict is None:
+        return
+    
+    try:
+        # Add timestamp and type indicator
+        payload = {
+            **metrics_dict,
+            'type': 'metrics',
+            'timestamp': datetime.now().isoformat(),
+            'ts': int(time.time() * 1000)  # epoch milliseconds
+        }
+        requests.post(WS_URL, json=payload, timeout=2.0)
+    except Exception as e:
+        print(f"⚠️ Failed to send metrics to WS server: {e}")
+
 def print_metrics(metrics_dict):
     """Print formatted metrics"""
     if metrics_dict is None:
@@ -76,6 +98,9 @@ def print_metrics(metrics_dict):
     print(f"Recall:    {metrics_dict['recall']:.4f}")
     print(f"F1-Score:  {metrics_dict['f1_score']:.4f}")
     print("=" * 80 + "\n")
+    
+    # Also send to WebSocket server
+    send_metrics(metrics_dict)
 
 # Kafka consumer setup
 consumer = KafkaConsumer(
