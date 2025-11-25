@@ -1,8 +1,20 @@
 from kafka import KafkaProducer
 import pandas as pd, json, time
+import os
 
-# Read your 1M transactions
-df = pd.read_csv("/opt/data/train.csv")
+# Determine which dataset to use
+# Use test set if available, otherwise use full dataset
+test_set_path = "/opt/data/test_set.csv"
+train_set_path = "/opt/data/train.csv"
+
+if os.path.exists(test_set_path):
+    print(f"✅ Using test set: {test_set_path}")
+    df = pd.read_csv(test_set_path)
+    print(f"   Streaming {len(df)} test transactions (unseen by models)")
+else:
+    print(f"Test set not found, using full training set: {train_set_path}")
+    print("   WARNING: Model may be evaluated on training data!")
+    df = pd.read_csv(train_set_path)
 
 producer = KafkaProducer(
     bootstrap_servers='fraudguard-kafka:9092',
