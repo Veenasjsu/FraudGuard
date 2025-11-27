@@ -117,6 +117,36 @@ export function FraudAlertsProvider({ children }: { children: React.ReactNode })
           const data = JSON.parse(event.data);
           if (data?.type === "hello" || data?.type === "ping") return;
 
+          // Handle metrics messages differently - store them but don't require transaction fields
+          if (data?.type === "metrics") {
+            // Metrics messages - store with a unique ID based on model and timestamp
+            const metricsId = `metrics_${data.model}_${data.ts ?? Date.now()}`;
+            if (idSetRef.current.has(metricsId)) return;
+
+            idSetRef.current.add(metricsId);
+            const mapped: Alert = {
+              id: metricsId,
+              user: `metrics-${data.model}`,
+              amount: 0,
+              fraud: 0,
+              score: data.accuracy,
+              ts: typeof data.ts === "number" ? data.ts : Date.now(),
+              raw: data, // Store full metrics data
+            };
+
+            setAlerts((prev) => {
+              const next = [mapped, ...prev];
+              let result = next;
+              if (next.length > MAX_STORED) {
+                result = next.slice(0, MAX_STORED);
+                idSetRef.current.rebuild(result.map((a) => a.id));
+              }
+              saveAlertsToStorage(result);
+              return result;
+            });
+            return;
+          }
+
           // Store ALL transactions that have predictions from all three models
           // This allows comparing which transactions each model flagged as fraud when switching models
           // Check if we have predictions from all three models (or at least RF + one other)

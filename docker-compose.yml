@@ -125,9 +125,12 @@ services:
       - ./fraud_unsupervised.pkl:/opt/app/fraud_unsupervised.pkl
     environment:
       KAFKA_BOOTSTRAP: fraudguard-kafka:9092
+      WS_URL: http://ws:8000/broadcast
     command: >
-      sh -c "pip install --no-cache-dir kafka-python joblib pandas scikit-learn==1.7.2 xgboost &&
+      sh -c "pip install --no-cache-dir kafka-python joblib pandas scikit-learn==1.7.2 xgboost requests &&
              python metrics_tracker.py"
     depends_on:
       kafka:
+        condition: service_healthy
+      ws:
         condition: service_healthy
