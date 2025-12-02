@@ -74,10 +74,17 @@ docker-compose logs -f predictions | Select-String -NotMatch "WARN KafkaDataCons
 docker-compose logs -f metrics
 ```
 
+---
+
 # 🚀 FraudGuard Frontend:
+
+## 🌐 View the UI on Localhost
+
+The FraudGuard frontend provides a web-based dashboard to visualize fraud detection results in real-time.
+
 ### 1. 📦 Install Dependencies
 
-To set up the frontend dependencies, navigate to the `frontend/` directory and run:
+Navigate to the `frontend/` directory and install dependencies:
 
 ```bash
 cd frontend
@@ -86,10 +93,35 @@ npm install
 
 ### 2. ▶️ Start Development Server
 
-After installing dependencies, start the development server with:
+Start the development server:
 
 ```bash
 npm run dev
-
 ```
-Visit the URL printed in the terminal (typically http://localhost:5173).
+
+### 3. 🌐 Open in Browser
+
+The server will start and display a URL in the terminal. Open it in your browser:
+
+**Default URL:** http://localhost:5173
+
+The frontend dashboard will display:
+- Real-time transaction monitoring
+- Fraud prediction results
+- Metrics and analytics
+- Alerts and notifications
+
+> 💡 **Tip**: Keep the backend services running (`docker-compose up -d`) for the frontend to receive real-time data.
+
+---
+
+## 🛑 Stopping the Application
+
+When you're done, you can stop all services:
+
+### Stop Docker Services (Backend)
+Stop all backend services (Kafka, Zookeeper, Producer, Predictions, Metrics):
+
+```bash
+docker-compose stop
+```

@@ -1,16 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ChevronLeft, ChevronRight, Dot, ListFilter } from "lucide-react";
-
-// ————— Types —————
-export type Alert = {
-  id: string;         // stable id (trans_num or composed)
-  user: string;
-  amount: number;
-  fraud: number;      // 0 or 1
-  score?: number;
-  ts?: number;
-  raw?: any;
-};
+import { useFraudAlerts } from "../contexts/FraudAlertsContext";
+import { useModelSelector } from "../contexts/ModelSelectorContext";
+import type { Alert } from "../contexts/FraudAlertsContext";
 
 // ————— Utils —————
 const formatINR = (n: number) =>
@@ -18,99 +10,22 @@ const formatINR = (n: number) =>
 
 // Tunables
 const ITEMS_PER_PAGE = 10;   // page size
-const MAX_STORED = 1000;     // memory cap
 
 // ————— Component —————
 export default function Alerts() {
-  const [allAlerts, setAllAlerts] = useState<Alert[]>([]);
+  const { alerts: allAlerts, connected: isConnected } = useFraudAlerts();
+  const { getPrediction, getScore, getModelInfo } = useModelSelector();
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState<"ts" | "amount" | "score">("ts");
   const [descending, setDescending] = useState(true);
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const keepAliveRef = useRef<number | null>(null);
-  const reconnectTimerRef = useRef<number | null>(null);
-  const idSetRef = useRef<Set<string>>(new Set()); // de-dupe ids
-  const [isConnected, setIsConnected] = useState(false);
-
-  // ————— WebSocket —————
-  useEffect(() => {
-    function connect() {
-      // If your frontend runs inside Docker, use: ws://host.docker.internal:8000/ws/alerts
-      wsRef.current = new WebSocket("ws://localhost:8000/ws/alerts");
-
-      wsRef.current.onopen = () => {
-        setIsConnected(true);
-        keepAliveRef.current = window.setInterval(() => {
-          try { wsRef.current?.send("ping"); } catch {}
-        }, 25000) as unknown as number;
-      };
-
-      wsRef.current.onmessage = (event) => {
-        let data: any;
-        try { data = JSON.parse(event.data); } catch { return; } // ignore non-JSON
-        if (data?.type === "hello" || data?.type === "ping") return;
-
-        // Map fraud flag
-        const fraudVal =
-          typeof data.fraud === "number" ? data.fraud :
-          typeof data.prediction === "number" ? data.prediction :
-          typeof data.is_fraud === "number" ? data.is_fraud : 0;
-
-        // Only keep FRAUD
-        if (Number(fraudVal) !== 1) return;
-
-        // Build stable-ish id
-        const id = String(
-          data.trans_num ??
-          `${data.cc_num ?? data.user ?? "unknown"}:${data.kafka_offset ?? Date.now()}`
-        );
-        if (idSetRef.current.has(id)) return; // de-dupe
-        idSetRef.current.add(id);
-
-        const mapped: Alert = {
-          id,
-          user: String(data.user ?? data.cc_num ?? data.card_id ?? "unknown"),
-          amount: Number(data.amount ?? data.amt ?? 0),
-          fraud: 1,
-          score: typeof data.score === "number" ? data.score : undefined,
-          ts: typeof data.kafka_ts === "number" ? data.kafka_ts : Date.now(),
-          raw: data,
-        };
-
-        setAllAlerts((prev) => {
-          const next = [mapped, ...prev];
-          if (next.length > MAX_STORED) {
-            const trimmed = next.slice(0, MAX_STORED);
-            idSetRef.current = new Set(trimmed.map(a => a.id)); // rebuild de-dupe set
-            return trimmed;
-          }
-          return next;
-        });
-      };
-
-      wsRef.current.onclose = () => {
-        setIsConnected(false);
-        if (keepAliveRef.current) window.clearInterval(keepAliveRef.current);
-        reconnectTimerRef.current = window.setTimeout(connect, 3000) as unknown as number;
-      };
-
-      wsRef.current.onerror = (err) => {
-        console.error("WebSocket error:", err);
-        wsRef.current?.close();
-      };
-    }
-
-    connect();
-    return () => {
-      if (keepAliveRef.current) window.clearInterval(keepAliveRef.current);
-      if (reconnectTimerRef.current) window.clearTimeout(reconnectTimerRef.current);
-      wsRef.current?.close();
-    };
-  }, []);
-
-  // FRAUD-only already enforced; still memoize for slicing/sorting
-  const fraudAlerts = useMemo(() => allAlerts, [allAlerts]);
+  // Filter by selected model's predictions
+  const fraudAlerts = useMemo(() => {
+    return allAlerts.filter((a) => {
+      const raw = a.raw || {};
+      return getPrediction(raw) === 1;
+    });
+  }, [allAlerts, getPrediction]);
 
   // ————— Sorting —————
   const sortedAlerts = useMemo(() => {
@@ -118,7 +33,11 @@ export default function Alerts() {
     copy.sort((a, b) => {
       const dir = descending ? -1 : 1;
       if (sortBy === "amount") return dir * ((a.amount || 0) - (b.amount || 0));
-      if (sortBy === "score") return dir * (((a.score ?? -Infinity) as number) - ((b.score ?? -Infinity) as number));
+      if (sortBy === "score") {
+        const scoreA = getScore(a.raw || {}) ?? -Infinity;
+        const scoreB = getScore(b.raw || {}) ?? -Infinity;
+        return dir * (scoreA - scoreB);
+      }
       // default ts
       return dir * (((a.ts ?? 0) as number) - ((b.ts ?? 0) as number));
     });
@@ -157,6 +76,8 @@ export default function Alerts() {
                 {isConnected ? "Live connection" : "Reconnecting…"}
               </span>
               <span className="mx-2">•</span>
+              <span>Model: <b>{getModelInfo().name}</b></span>
+              <span className="mx-2">•</span>
               <span>Total frauds: <b>{total}</b></span>
             </div>
           </div>
@@ -190,51 +111,45 @@ export default function Alerts() {
 
       {/* Empty state */}
       {total === 0 && (
-        <div className="rounded-2xl border border-dashed p-10 text-center text-gray-600 bg-white">
-          <div className="mx-auto mb-3 w-10 h-10 rounded-full flex items-center justify-center bg-red-50 text-red-600">
-            <AlertTriangle className="w-5 h-5" />
+        <div className="rounded-xl border-2 border-dashed border-gray-300 p-12 text-center bg-white shadow-sm">
+          <div className="mx-auto mb-4 w-12 h-12 rounded-full flex items-center justify-center bg-red-50 text-red-600">
+            <AlertTriangle className="w-6 h-6" />
           </div>
-          <div className="text-lg font-medium">No frauds yet</div>
-          <div className="text-sm text-gray-500">You’ll see suspicious transactions appear here in real time.</div>
+          <div className="text-xl font-semibold text-gray-900 mb-2">No frauds yet</div>
+          <div className="text-sm text-gray-600">You'll see suspicious transactions appear here in real time.</div>
         </div>
       )}
 
       {/* List */}
       <ul className="space-y-3">
         {pageItems.map((a) => (
-          <li key={a.id} className="group rounded-2xl border bg-white shadow-sm hover:shadow-md transition-shadow">
-            <div className="p-4 grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 items-center">
-              {/* Left status bar */}
-              {/* <div className="hidden md:block md:col-span-1">
-                <div className="h-full w-1 rounded-full bg-gradient-to-b from-red-500 to-orange-400" />
-              </div> */}
-              
-
+          <li key={a.id} className="group rounded-xl border border-gray-200 bg-white shadow-md hover:shadow-lg transition-all">
+            <div className="p-5 grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
               {/* Main content */}
-              <div className="md:col-span-8 flex flex-wrap items-center gap-x-1 gap-y-1">
-                <span className="inline-flex items-center gap-2 font-semibold text-gray-900">
-                  <span className="inline-flex h-2 w-2 rounded-full bg-red-500 ring-2 ring-red-200" />
+              <div className="md:col-span-8 flex flex-wrap items-center gap-x-2 gap-y-2">
+                <span className="inline-flex items-center gap-2 font-semibold text-gray-900 text-base">
+                  <span className="inline-flex h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-red-200" />
                   {a.user}
                 </span>
                 <span className="text-gray-400">•</span>
-                <span className="text-gray-800 font-medium">{'$'+a.amount}</span>
+                <span className="text-gray-900 font-semibold text-base">{formatINR(a.amount)}</span>
                 <span className="text-gray-400">•</span>
-                <span className="inline-flex items-center text-red-700 bg-red-100 px-2 py-0.5 rounded-full text-xs font-medium">FRAUD</span>
-                {typeof a.score === "number" && (
-                  <span className="ml-1 text-xs text-gray-600">score: {a.score.toFixed(2)}</span>
+                <span className="inline-flex items-center text-red-700 bg-red-100 px-3 py-1 rounded-full text-xs font-semibold border border-red-200">FRAUD</span>
+                {getScore(a.raw || {}) !== undefined && (
+                  <span className="ml-1 text-sm text-gray-600 font-medium">score: {getScore(a.raw || {})!.toFixed(2)}</span>
                 )}
               </div>
 
               {/* Timestamp */}
-              <div className="md:col-span-3 text-sm text-gray-500 md:text-right">
+              <div className="md:col-span-3 text-sm text-gray-600 md:text-right font-medium">
                 {a.ts ? new Date(a.ts).toLocaleString() : ""}
               </div>
 
               {/* Actions */}
               <div className="md:col-span-1 md:justify-self-end">
                 <details className="cursor-pointer">
-                  <summary className="text-xs text-gray-500 hover:text-gray-700">Raw</summary>
-                  <pre className="mt-2 max-h-52 overflow-auto rounded-lg bg-gray-50 p-3 text-xs text-gray-800">{JSON.stringify(a.raw, null, 2)}</pre>
+                  <summary className="text-xs text-gray-600 hover:text-gray-900 font-medium">Raw</summary>
+                  <pre className="mt-3 max-h-52 overflow-auto rounded-lg bg-gray-50 p-4 text-xs text-gray-800 border border-gray-200">{JSON.stringify(a.raw, null, 2)}</pre>
                 </details>
               </div>
             </div>
@@ -244,23 +159,23 @@ export default function Alerts() {
 
       {/* Bottom bar: Prev/Next + page label */}
       {total > 0 && (
-        <div className="sticky bottom-0 mt-6 bg-white/80 backdrop-blur-sm py-2 flex items-center justify-between border-t">
+        <div className="sticky bottom-0 mt-6 bg-white/95 backdrop-blur-sm py-3 px-4 flex items-center justify-between border-t border-gray-200 rounded-b-xl shadow-sm">
           <button
             onClick={prev}
             disabled={currentPage === 1}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border hover:bg-gray-50 disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium text-gray-700 shadow-sm transition-colors"
           >
             <ChevronLeft className="w-4 h-4" /> Prev
           </button>
 
-          <div className="text-sm text-gray-600">
-            Page <b>{currentPage}</b> of <b>{totalPages}</b>
+          <div className="text-sm text-gray-700 font-medium">
+            Page <b className="text-gray-900">{currentPage}</b> of <b className="text-gray-900">{totalPages}</b>
           </div>
 
           <button
             onClick={next}
             disabled={currentPage === totalPages}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border hover:bg-gray-50 disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium text-gray-700 shadow-sm transition-colors"
           >
             Next <ChevronRight className="w-4 h-4" />
           </button>

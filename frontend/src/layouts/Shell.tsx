@@ -1,9 +1,20 @@
 import React from "react";
-import { Link, NavLink, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
+import { useModelSelector, MODELS } from "../contexts/ModelSelectorContext";
 
 export default function Shell() {
-  const item = "flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-gray-600 hover:bg-indigo-50 hover:text-indigo-700";
+  const { selectedModel, setSelectedModel } = useModelSelector();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const item = "flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-gray-600 hover:bg-indigo-50 hover:text-indigo-700 cursor-pointer";
   const active = "!bg-indigo-100 !text-indigo-700";
+  
+  const isActive = (path: string) => {
+    if (path === "/") {
+      return location.pathname === "/";
+    }
+    return location.pathname.startsWith(path);
+  };
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -14,11 +25,36 @@ export default function Shell() {
             <span className="font-semibold text-gray-900">FraudGuard</span>
           </Link>
           <nav className="space-y-1">
-            <NavLink to="/" end className={({isActive}) => `${item} ${isActive?active:""}`}>Dashboard</NavLink>
-            <NavLink to="/alerts" className={({isActive}) => `${item} ${isActive?active:""}`}>Fraud Alerts</NavLink>
-            <NavLink to="/transactions" className={({isActive}) => `${item} ${isActive?active:""}`}>Transactions</NavLink>
-            <NavLink to="/reports" className={({isActive}) => `${item} ${isActive?active:""}`}>Reports</NavLink>
-            <NavLink to="/settings" className={({isActive}) => `${item} ${isActive?active:""}`}>Settings</NavLink>
+            <div 
+              onClick={() => navigate("/")}
+              className={`${item} ${isActive("/") ? active : ""}`}
+            >
+              Dashboard
+            </div>
+            <div 
+              onClick={() => navigate("/alerts")}
+              className={`${item} ${isActive("/alerts") ? active : ""}`}
+            >
+              Fraud Alerts
+            </div>
+            <div 
+              onClick={() => navigate("/transactions")}
+              className={`${item} ${isActive("/transactions") ? active : ""}`}
+            >
+              Transactions
+            </div>
+            <div 
+              onClick={() => navigate("/reports")}
+              className={`${item} ${isActive("/reports") ? active : ""}`}
+            >
+              Reports
+            </div>
+            <div 
+              onClick={() => navigate("/settings")}
+              className={`${item} ${isActive("/settings") ? active : ""}`}
+            >
+              Settings
+            </div>
           </nav>
         </div>
       </aside>
@@ -33,6 +69,20 @@ export default function Shell() {
               <span className="absolute left-3 top-2.5">🔍</span>
             </div>
             <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <label htmlFor="model-selector" className="text-xs text-gray-500 hidden md:block">Model:</label>
+                <select
+                  id="model-selector"
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value as any)}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-200 cursor-pointer"
+                  title="Select fraud detection model"
+                >
+                  <option value="rf">{MODELS.rf.fullName}</option>
+                  <option value="xgb">{MODELS.xgb.fullName}</option>
+                  <option value="if">{MODELS.if.fullName}</option>
+                </select>
+              </div>
               <span className="w-2 h-2 bg-rose-500 rounded-full"></span>
               <div className="w-8 h-8 bg-gray-200 rounded-full"></div>
             </div>

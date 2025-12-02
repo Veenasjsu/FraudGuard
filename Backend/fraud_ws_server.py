@@ -95,5 +95,5 @@ async def _test_send():
 # ⬇️ Transactions API for your UI
 @app.get("/transactions")
 def list_transactions():
-    # Return newest first; trim to last 500 for the page
-    return list(reversed(transactions[-500:]))
+    # Return newest first; return all stored transactions (up to MAX_TX)
+    return list(reversed(transactions))
