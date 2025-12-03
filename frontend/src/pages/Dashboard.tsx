@@ -307,7 +307,7 @@ export default function Dashboard() {
 
       {/* Fraud Map */}
       <div className="mb-6">
-        <FraudMap />
+        <FraudMap alerts={filtered} />
       </div>
 
       {/* Alerts Table */}

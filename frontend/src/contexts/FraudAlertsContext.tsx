@@ -80,7 +80,7 @@ function saveAlertsToStorage(alerts: Alert[]) {
 
 // Context Provider Component
 export function FraudAlertsProvider({ children }: { children: React.ReactNode }) {
-  const [alerts, setAlerts] = useState<Alert[]>(() => loadAlertsFromStorage());
+  const [alerts, setAlerts] = useState<Alert[]>([]);
   const [connected, setConnected] = useState(false);
   const [paused, setPaused] = useState(false);
 

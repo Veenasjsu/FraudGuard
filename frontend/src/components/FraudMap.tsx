@@ -30,8 +30,10 @@ type LocationFraudData = {
   totalAmount: number;
 };
 
-export default function FraudMap() {
-  const { alerts } = useFraudAlerts();
+type FraudMapProps = { alerts: any[] };
+
+export default function FraudMap({ alerts }: FraudMapProps) {
+  //const { alerts } = useFraudAlerts();
   const { getPrediction, getModelInfo } = useModelSelector();
   const [selectedLocation, setSelectedLocation] = useState<LocationFraudData | null>(null);
   const [mapError, setMapError] = useState<Error | null>(null);
