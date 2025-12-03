@@ -67,7 +67,7 @@ export default function FraudMap() {
     alerts.forEach((alert) => {
       const raw = alert.raw || {};
       const isFraud = getPrediction(raw) === 1;
-      
+
       if (!isFraud) return;
 
       const state = String(raw.state || raw.State || "").trim().toUpperCase();
@@ -80,7 +80,7 @@ export default function FraudMap() {
       if (!state || state.length !== 2) return;
 
       const existing = locationMap.get(state) || { count: 0, amount: 0, coords: undefined, city: city || state };
-      
+
       // Try to get coordinates from state lookup first, then from lat/lon
       let coords: [number, number] | undefined = existing.coords;
       if (!coords && US_STATE_COORDS[state]) {
@@ -125,11 +125,24 @@ export default function FraudMap() {
   const minFraudCount = Math.min(...locationData.map((d) => d.fraudCount), 1);
 
   // Calculate marker size (scaled between 8 and 40 pixels)
+  // const getMarkerSize = (count: number) => {
+  //   if (maxFraudCount === minFraudCount) return 20;
+  //   const normalized = (count - minFraudCount) / (maxFraudCount - minFraudCount);
+  //   return 8 + normalized * 32;
+  // };
+
   const getMarkerSize = (count: number) => {
-    if (maxFraudCount === minFraudCount) return 20;
-    const normalized = (count - minFraudCount) / (maxFraudCount - minFraudCount);
-    return 8 + normalized * 32;
+    const minSize = 4;
+    const maxSize = 18;
+
+    if (maxFraudCount === minFraudCount) return (minSize + maxSize) / 2;
+
+    const normalized =
+      (count - minFraudCount) / (maxFraudCount - minFraudCount);
+
+    return minSize + normalized * (maxSize - minSize);
   };
+
 
   // Show loading state
   if (loading) {
@@ -165,8 +178,8 @@ export default function FraudMap() {
               <h3 className="text-sm font-semibold text-gray-900 mb-3">Top Fraud Locations</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                 {locationData.slice(0, 9).map((data) => (
-                  <div 
-                    key={data.location} 
+                  <div
+                    key={data.location}
                     className="flex items-center justify-between text-sm p-2 rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors border border-gray-200"
                   >
                     <span className="font-medium text-gray-700">{data.location}</span>
@@ -186,133 +199,133 @@ export default function FraudMap() {
 
   // Render the actual map if library loaded successfully
   const { ComposableMap, Geographies, Geography, Marker } = MapComponents;
-  const geoUrl = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
+  //const geoUrl = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
+  const geoUrl = "https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json";
 
   return (
-      <div className="rounded-xl bg-white shadow-md border border-gray-200 p-6">
-        <div className="mb-4">
-          <h2 className="text-xl font-semibold text-gray-900">🌍 Fraud by Location</h2>
-          <p className="text-sm text-gray-600 mt-1">
-            Geographic distribution of fraud cases ({getModelInfo().fullName}) • {locationData.length} locations with fraud
-          </p>
-        </div>
+    <div className="rounded-xl bg-white shadow-md border border-gray-200 p-6">
+      <div className="mb-4">
+        <h2 className="text-xl font-semibold text-gray-900">🌍 Fraud by Location</h2>
+        <p className="text-sm text-gray-600 mt-1">
+          Geographic distribution of fraud cases ({getModelInfo().fullName}) • {locationData.length} locations with fraud
+        </p>
+      </div>
 
-        <div className="relative w-full bg-gray-50 rounded-lg overflow-hidden" style={{ height: "500px" }}>
-          <ComposableMap
-            projectionConfig={{
-              scale: 120,
-              center: [-95, 38], // Center on US
-            }}
-            style={{ width: "100%", height: "100%" }}
-          >
-            <Geographies geography={geoUrl}>
-              {({ geographies }: any) =>
-                geographies.map((geo: any) => (
-                  <Geography
-                    key={geo.rsmKey}
-                    geography={geo}
-                    fill="#E5E7EB"
-                    stroke="#D1D5DB"
-                    style={{
-                      default: { outline: "none" },
-                      hover: { fill: "#F3F4F6", outline: "none" },
-                      pressed: { fill: "#E5E7EB", outline: "none" },
-                    }}
-                  />
-                ))
-              }
-            </Geographies>
+      <div className="relative w-full bg-gray-50 rounded-lg overflow-hidden" style={{ height: "500px" }}>
+        <ComposableMap
+          projection="geoAlbersUsa"
+          projectionConfig={{ scale: 1100 }}
+          style={{ width: "100%", height: "100%" }}
+        >
 
-            {locationData.map((data, idx) => (
-              <Marker 
-                key={`${data.location}-${idx}`} 
-                coordinates={data.coordinates}
-                onClick={() => setSelectedLocation(data)}
-              >
-                <g style={{ cursor: "pointer" }}>
-                  <circle
-                    r={getMarkerSize(data.fraudCount)}
-                    fill="#EF4444"
-                    fillOpacity={0.7}
-                    stroke="#DC2626"
-                    strokeWidth={2}
-                  />
-                  <text
-                    textAnchor="middle"
-                    y={-getMarkerSize(data.fraudCount) - 8}
-                    style={{
-                      fontFamily: "system-ui",
-                      fill: "#DC2626",
-                      fontSize: "11px",
-                      fontWeight: "bold",
-                      pointerEvents: "none",
-                    }}
-                  >
-                    {data.fraudCount}
-                  </text>
-                </g>
-              </Marker>
-            ))}
-          </ComposableMap>
-          
-          {/* Tooltip on hover/click */}
-          {selectedLocation && (
-            <div 
-              className="absolute top-4 left-4 bg-white rounded-lg shadow-lg border border-gray-200 p-3 z-10"
-              style={{ maxWidth: "250px" }}
+          <Geographies geography={geoUrl}>
+            {({ geographies }: any) =>
+              geographies.map((geo: any) => (
+                <Geography
+                  key={geo.rsmKey}
+                  geography={geo}
+                  fill="#E5E7EB"
+                  stroke="#D1D5DB"
+                  style={{
+                    default: { outline: "none" },
+                    hover: { fill: "#F3F4F6", outline: "none" },
+                    pressed: { fill: "#E5E7EB", outline: "none" },
+                  }}
+                />
+              ))
+            }
+          </Geographies>
+
+          {locationData.map((data, idx) => (
+            <Marker
+              key={`${data.location}-${idx}`}
+              coordinates={data.coordinates}
+              onClick={() => setSelectedLocation(data)}
             >
-              <div className="text-sm font-semibold text-gray-900 mb-2">{selectedLocation.location}</div>
-              <div className="space-y-1 text-xs text-gray-600">
-                <div>Fraud Cases: <span className="font-semibold text-red-600">{selectedLocation.fraudCount}</span></div>
-                <div>Total Amount: <span className="font-semibold">${selectedLocation.totalAmount.toFixed(2)}</span></div>
-              </div>
-              <button 
-                onClick={() => setSelectedLocation(null)}
-                className="mt-2 text-xs text-gray-500 hover:text-gray-700"
-              >
-                Close
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Legend */}
-        <div className="mt-4 flex items-center justify-between text-sm text-gray-600">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-red-500"></div>
-              <span>Fraud cases</span>
-            </div>
-            <div className="text-xs">
-              Min: {minFraudCount} • Max: {maxFraudCount}
-            </div>
-          </div>
-        </div>
-
-        {/* Top locations list */}
-        {locationData.length > 0 && (
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Top Fraud Locations</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-              {locationData.slice(0, 9).map((data) => (
-                <div 
-                  key={data.location} 
-                  onClick={() => setSelectedLocation(data)}
-                  className="flex items-center justify-between text-sm p-2 rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors border border-gray-200"
+              <g style={{ cursor: "pointer" }}>
+                <circle
+                  r={getMarkerSize(data.fraudCount)}
+                  fill="#EF4444"
+                  fillOpacity={0.7}
+                  stroke="#DC2626"
+                  strokeWidth={2}
+                />
+                <text
+                  textAnchor="middle"
+                  y={-getMarkerSize(data.fraudCount) - 8}
+                  style={{
+                    fontFamily: "system-ui",
+                    fill: "#DC2626",
+                    fontSize: "11px",
+                    fontWeight: "bold",
+                    pointerEvents: "none",
+                  }}
                 >
-                  <span className="font-medium text-gray-700">{data.location}</span>
-                  <span className="text-red-600 font-semibold">{data.fraudCount} cases</span>
-                </div>
-              ))}
+                  {data.fraudCount}
+                </text>
+              </g>
+            </Marker>
+          ))}
+        </ComposableMap>
+
+        {/* Tooltip on hover/click */}
+        {selectedLocation && (
+          <div
+            className="absolute top-4 left-4 bg-white rounded-lg shadow-lg border border-gray-200 p-3 z-10"
+            style={{ maxWidth: "250px" }}
+          >
+            <div className="text-sm font-semibold text-gray-900 mb-2">{selectedLocation.location}</div>
+            <div className="space-y-1 text-xs text-gray-600">
+              <div>Fraud Cases: <span className="font-semibold text-red-600">{selectedLocation.fraudCount}</span></div>
+              <div>Total Amount: <span className="font-semibold">${selectedLocation.totalAmount.toFixed(2)}</span></div>
             </div>
-          </div>
-        )}
-        
-        {locationData.length === 0 && (
-          <div className="text-center py-8 text-gray-500 text-sm">
-            No fraud cases with location data yet. Map will update as fraud cases are detected.
+            <button
+              onClick={() => setSelectedLocation(null)}
+              className="mt-2 text-xs text-gray-500 hover:text-gray-700"
+            >
+              Close
+            </button>
           </div>
         )}
       </div>
-    );
+
+      {/* Legend */}
+      <div className="mt-4 flex items-center justify-between text-sm text-gray-600">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-red-500"></div>
+            <span>Fraud cases</span>
+          </div>
+          <div className="text-xs">
+            Min: {minFraudCount} • Max: {maxFraudCount}
+          </div>
+        </div>
+      </div>
+
+      {/* Top locations list */}
+      {locationData.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-gray-200">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Top Fraud Locations</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            {locationData.slice(0, 9).map((data) => (
+              <div
+                key={data.location}
+                onClick={() => setSelectedLocation(data)}
+                className="flex items-center justify-between text-sm p-2 rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors border border-gray-200"
+              >
+                <span className="font-medium text-gray-700">{data.location}</span>
+                <span className="text-red-600 font-semibold">{data.fraudCount} cases</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {locationData.length === 0 && (
+        <div className="text-center py-8 text-gray-500 text-sm">
+          No fraud cases with location data yet. Map will update as fraud cases are detected.
+        </div>
+      )}
+    </div>
+  );
 }

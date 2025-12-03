@@ -185,7 +185,7 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
         <div>
-          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">🛡️ Fraud Guard Dashboard</h1>
+          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">🛡️ Fraud Guard </h1>
           <div className="text-sm text-gray-600 mt-1 flex flex-wrap items-center gap-2">
             <span>Model: <strong className="text-gray-900">{getModelInfo().fullName}</strong></span>
             <span className="text-gray-400">•</span>
