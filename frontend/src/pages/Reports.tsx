@@ -32,10 +32,60 @@ type MetricsData = {
   type?: string;
 };
 
+
+// 🌿 Soft Pastel Confusion Matrix Colors (your requested palette)
+const CONFUSION_MATRIX_COLORS = {
+  // True Negative
+  tn_bg: "#E6F8EC",
+  tn_border: "#C9F0D8",
+  tn_text: "#15803D",
+
+  // False Positive
+  fp_bg: "#FFF7DB",
+  fp_border: "#FBEBAF",
+  fp_text: "#B45309",
+
+  // False Negative
+  fn_bg: "#FDE7E9",
+  fn_border: "#F9D0D4",
+  fn_text: "#B91C1C",
+
+  // True Positive
+  tp_bg: "#E3EEFF",
+  tp_border: "#C7DBFE",
+  tp_text: "#1D4ED8",
+};
+
+// Legend colors (matching your palette)
+const LEGEND_COLORS = {
+  tn: "#16A34A",  // green
+  fp: "#EAB308",  // yellow
+  fn: "#EF4444",  // red
+  tp: "#2563EB",  // blue
+};
+
+
+const METRIC_STYLES = {
+  Accuracy:  { color: "#22d3ee" }, // Neon Cyan
+  Precision: { color: "#818cf8" }, // Soft Neon Indigo
+  Recall:    { color: "#facc15" }, // Neon Yellow
+  "F1-Score": { color: "#fb7185" }, // Neon Rose
+};
+
+
+
+
+// Global bar settings for charts
+const BAR_SIZE = 26;          // width of each bar
+const BAR_CATEGORY_GAP = "30%"; // gap between groups
+const BAR_GAP = 4;            // gap between bars in a group
+
+
+
 // Helper function to extract metrics from alerts
 function extractMetricsFromAlerts(alerts: any[]): MetricsData[] {
   const metricsMap = new Map<string, MetricsData>();
-  
+
   alerts.forEach(alert => {
     const raw = alert.raw || {};
     // Check if this is a metrics message
@@ -45,7 +95,7 @@ function extractMetricsFromAlerts(alerts: any[]): MetricsData[] {
       const existing = metricsMap.get(modelKey);
       const alertTs = raw.ts || alert.ts || 0;
       const existingTs = existing?.ts || 0;
-      
+
       if (!existing || (alertTs > existingTs)) {
         metricsMap.set(modelKey, {
           model: normalizeModelName(raw.model),
@@ -65,7 +115,7 @@ function extractMetricsFromAlerts(alerts: any[]): MetricsData[] {
       }
     }
   });
-  
+
   return Array.from(metricsMap.values());
 }
 
@@ -81,10 +131,10 @@ function normalizeModelName(model: string): string {
 export default function Reports() {
   const { alerts } = useFraudAlerts();
   const { selectedModel, getModelInfo } = useModelSelector();
-  
+
   // Extract all metrics
   const allMetrics = useMemo(() => extractMetricsFromAlerts(alerts), [alerts]);
-  
+
   // Get metrics for selected model
   const selectedMetrics = useMemo(() => {
     const modelName = getModelInfo().name;
@@ -111,7 +161,7 @@ export default function Reports() {
   // Confusion matrix data for selected model
   const confusionMatrixData = useMemo(() => {
     if (!selectedMetrics) return null;
-    
+
     return [
       { label: 'True Negative', value: selectedMetrics.tn, color: '#10b981' },
       { label: 'False Positive', value: selectedMetrics.fp, color: '#f59e0b' },
@@ -144,7 +194,7 @@ export default function Reports() {
     <div className="mx-auto max-w-7xl p-4 md:p-6">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">📊 Model Performance Reports</h1>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2"> Model Performance Reports</h1>
         <p className="text-sm text-gray-600">
           Performance metrics for {getModelInfo().fullName}
           {selectedMetrics && (
@@ -168,7 +218,7 @@ export default function Reports() {
                 {(selectedMetrics.accuracy * 100).toFixed(2)}%
               </div>
             </div>
-            
+
             <div className="rounded-xl p-5 bg-white shadow-md border border-gray-200">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-gray-600">Precision</span>
@@ -178,7 +228,7 @@ export default function Reports() {
                 {(selectedMetrics.precision * 100).toFixed(2)}%
               </div>
             </div>
-            
+
             <div className="rounded-xl p-5 bg-white shadow-md border border-gray-200">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-gray-600">Recall</span>
@@ -188,7 +238,7 @@ export default function Reports() {
                 {(selectedMetrics.recall * 100).toFixed(2)}%
               </div>
             </div>
-            
+
             <div className="rounded-xl p-5 bg-white shadow-md border border-gray-200">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-gray-600">F1-Score</span>
@@ -204,76 +254,137 @@ export default function Reports() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <div className="rounded-xl p-6 bg-white shadow-md border border-gray-200">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Confusion Matrix</h2>
-              
-              {/* Confusion Matrix Grid */}
-              <div className="space-y-2 mb-4">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="p-4 rounded-lg bg-green-100 border-2 border-green-300 text-center">
-                    <div className="text-xs text-gray-600 mb-1">True Negative</div>
-                    <div className="text-2xl font-bold text-green-700">{selectedMetrics.tn}</div>
+
+              <div className="space-y-4 mb-4">
+                <div className="grid grid-cols-2 gap-4">
+
+                  {/* True Negative */}
+                  <div
+                    className="p-4 rounded-lg text-center border-2"
+                    style={{
+                      background: CONFUSION_MATRIX_COLORS.tn_bg,
+                      borderColor: CONFUSION_MATRIX_COLORS.tn_border,
+                    }}
+                  >
+                    <div className="text-sm text-gray-700 mb-1">True Negative</div>
+                    <div
+                      className="text-3xl font-bold"
+                      style={{ color: CONFUSION_MATRIX_COLORS.tn_text }}
+                    >
+                      {selectedMetrics.tn}
+                    </div>
                   </div>
-                  <div className="p-4 rounded-lg bg-yellow-100 border-2 border-yellow-300 text-center">
-                    <div className="text-xs text-gray-600 mb-1">False Positive</div>
-                    <div className="text-2xl font-bold text-yellow-700">{selectedMetrics.fp}</div>
+
+                  {/* False Positive */}
+                  <div
+                    className="p-4 rounded-lg text-center border-2"
+                    style={{
+                      background: CONFUSION_MATRIX_COLORS.fp_bg,
+                      borderColor: CONFUSION_MATRIX_COLORS.fp_border,
+                    }}
+                  >
+                    <div className="text-sm text-gray-700 mb-1">False Positive</div>
+                    <div
+                      className="text-3xl font-bold"
+                      style={{ color: CONFUSION_MATRIX_COLORS.fp_text }}
+                    >
+                      {selectedMetrics.fp}
+                    </div>
                   </div>
-                  <div className="p-4 rounded-lg bg-red-100 border-2 border-red-300 text-center">
-                    <div className="text-xs text-gray-600 mb-1">False Negative</div>
-                    <div className="text-2xl font-bold text-red-700">{selectedMetrics.fn}</div>
+
+                  {/* False Negative */}
+                  <div
+                    className="p-4 rounded-lg text-center border-2"
+                    style={{
+                      background: CONFUSION_MATRIX_COLORS.fn_bg,
+                      borderColor: CONFUSION_MATRIX_COLORS.fn_border,
+                    }}
+                  >
+                    <div className="text-sm text-gray-700 mb-1">False Negative</div>
+                    <div
+                      className="text-3xl font-bold"
+                      style={{ color: CONFUSION_MATRIX_COLORS.fn_text }}
+                    >
+                      {selectedMetrics.fn}
+                    </div>
                   </div>
-                  <div className="p-4 rounded-lg bg-blue-100 border-2 border-blue-300 text-center">
-                    <div className="text-xs text-gray-600 mb-1">True Positive</div>
-                    <div className="text-2xl font-bold text-blue-700">{selectedMetrics.tp}</div>
+
+                  {/* True Positive */}
+                  <div
+                    className="p-4 rounded-lg text-center border-2"
+                    style={{
+                      background: CONFUSION_MATRIX_COLORS.tp_bg,
+                      borderColor: CONFUSION_MATRIX_COLORS.tp_border,
+                    }}
+                  >
+                    <div className="text-sm text-gray-700 mb-1">True Positive</div>
+                    <div
+                      className="text-3xl font-bold"
+                      style={{ color: CONFUSION_MATRIX_COLORS.tp_text }}
+                    >
+                      {selectedMetrics.tp}
+                    </div>
                   </div>
                 </div>
               </div>
 
               {/* Legend */}
-              <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="grid grid-cols-2 gap-3 text-sm mt-4">
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded bg-green-500"></div>
-                  <span className="text-gray-600">Correctly identified as legitimate</span>
+                  <div className="w-3 h-3 rounded" style={{ background: LEGEND_COLORS.tn }}></div>
+                  <span className="text-gray-700">Correctly identified as legitimate</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded bg-blue-500"></div>
-                  <span className="text-gray-600">Correctly identified as fraud</span>
+                  <div className="w-3 h-3 rounded" style={{ background: LEGEND_COLORS.tp }}></div>
+                  <span className="text-gray-700">Correctly identified as fraud</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded bg-yellow-500"></div>
-                  <span className="text-gray-600">Legitimate flagged as fraud</span>
+                  <div className="w-3 h-3 rounded" style={{ background: LEGEND_COLORS.fp }}></div>
+                  <span className="text-gray-700">Legitimate flagged as fraud</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded bg-red-500"></div>
-                  <span className="text-gray-600">Fraud missed</span>
+                  <div className="w-3 h-3 rounded" style={{ background: LEGEND_COLORS.fn }}></div>
+                  <span className="text-gray-700">Fraud missed</span>
                 </div>
               </div>
             </div>
+
 
             {/* Confusion Matrix Bar Chart */}
             <div className="rounded-xl p-6 bg-white shadow-md border border-gray-200">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Confusion Matrix Distribution</h2>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={confusionMatrixData || []}>
+                <BarChart
+                  data={confusionMatrixData || []}
+                  barSize={26}
+                  barCategoryGap="40%"
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis 
-                    dataKey="label" 
+                  <XAxis
+                    dataKey="label"
                     stroke="#6b7280"
-                    style={{ fontSize: '12px' }}
+                    style={{ fontSize: "12px" }}
                     angle={-20}
                     textAnchor="end"
                     height={60}
                   />
-                  <YAxis stroke="#6b7280" style={{ fontSize: '12px' }} />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '8px' }}
-                    formatter={(value: any) => [value.toLocaleString(), 'Count']}
+                  <YAxis stroke="#6b7280" style={{ fontSize: "12px" }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "white",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "8px",
+                    }}
+                    formatter={(value: any) => [value.toLocaleString(), "Count"]}
                   />
-                  <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                  <Bar dataKey="value" radius={[2, 2, 0, 0]}>
                     {confusionMatrixData?.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+
             </div>
           </div>
 
@@ -282,30 +393,62 @@ export default function Reports() {
             <div className="rounded-xl p-6 bg-white shadow-md border border-gray-200 mb-6">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Model Comparison</h2>
               <ResponsiveContainer width="100%" height={350}>
-                <BarChart data={metricsComparisonData}>
+                <BarChart
+                  data={metricsComparisonData}
+                  barSize={BAR_SIZE}
+                  barCategoryGap={BAR_CATEGORY_GAP}
+                  barGap={BAR_GAP}
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis 
-                    dataKey="name" 
+                  <XAxis
+                    dataKey="name"
                     stroke="#6b7280"
-                    style={{ fontSize: '12px' }}
+                    style={{ fontSize: "12px" }}
                   />
-                  <YAxis 
-                    stroke="#6b7280" 
-                    style={{ fontSize: '12px' }}
+                  <YAxis
+                    stroke="#6b7280"
+                    style={{ fontSize: "12px" }}
                     domain={[0, 100]}
-                    label={{ value: 'Percentage (%)', angle: -90, position: 'insideLeft', style: { fontSize: '12px', fill: '#6b7280' } }}
+                    label={{
+                      value: "Percentage (%)",
+                      angle: -90,
+                      position: "insideLeft",
+                      style: { fontSize: "12px", fill: "#6b7280" },
+                    }}
                   />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '8px' }}
-                    formatter={(value: any) => [`${value}%`, '']}
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "white",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "8px",
+                    }}
+                    formatter={(value: any) => [`${value}%`, ""]}
                   />
-                  <Legend />
-                  <Bar dataKey="Accuracy" fill="#10b981" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="Precision" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="Recall" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="F1-Score" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                  <Legend iconType="circle" />
+
+                  <Bar
+                    dataKey="Accuracy"
+                    fill={METRIC_STYLES["Accuracy"].color}
+                    radius={[2, 2, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="F1-Score"
+                    fill={METRIC_STYLES["F1-Score"].color}
+                    radius={[2, 2, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="Precision"
+                    fill={METRIC_STYLES["Precision"].color}
+                    radius={[2, 2, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="Recall"
+                    fill={METRIC_STYLES["Recall"].color}
+                    radius={[2, 2, 0, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
+
             </div>
           )}
 
