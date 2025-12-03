@@ -49,12 +49,12 @@ export default function Shell() {
             >
               Reports
             </div>
-            <div 
+            {/* <div 
               onClick={() => navigate("/settings")}
               className={`${item} ${isActive("/settings") ? active : ""}`}
             >
               Settings
-            </div>
+            </div> */}
           </nav>
         </div>
       </aside>
