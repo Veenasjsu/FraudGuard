@@ -38,7 +38,7 @@ const maskCard = (v: string | number) => {
 const fmtINR = (n: number) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
-    currency: "INR",
+    currency: "USD",
     maximumFractionDigits: 2,
   }).format(n || 0);
 
