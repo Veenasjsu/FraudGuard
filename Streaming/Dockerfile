@@ -2,9 +2,16 @@ FROM python:3.9-slim-bullseye
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Java 11 + tools
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends openjdk-11-jre-headless wget ca-certificates && \
+# Archived Debian 11 repository
+RUN printf '%s\n' \
+    'deb http://archive.debian.org/debian bullseye main' \
+    > /etc/apt/sources.list && \
+    rm -f /etc/apt/sources.list.d/debian.sources && \
+    apt-get -o Acquire::Check-Valid-Until=false update && \
+    apt-get install -y --no-install-recommends \
+        openjdk-11-jre-headless \
+        wget \
+        ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 # Spark 3.3.2 (Hadoop 3)
